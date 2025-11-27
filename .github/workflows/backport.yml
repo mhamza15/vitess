@@ -217,23 +217,26 @@ jobs:
               fi
 
               echo "  Creating pull request..."
-              # Create the pull request
-              NEW_PR_NUMBER=$(gh pr create \
+              # Create the pull request (returns URL like https://github.com/owner/repo/pull/123)
+              PR_URL=$(gh pr create \
                 --title "[$BRANCH] $PR_TITLE (#$PR_NUMBER)" \
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
                 $DRAFT_FLAG \
-                --repo "${{ github.repository }}" \
-                --json number --jq '.number' 2>/dev/null || echo "")
+                --repo "${{ github.repository }}" 2>&1)
 
-              if [ -z "$NEW_PR_NUMBER" ]; then
+              if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
                 echo "Error: Failed to create PR for branch $NEW_BRANCH"
+                echo "$PR_URL"
                 git checkout main
                 continue
               fi
 
-              echo "Created backport PR #$NEW_PR_NUMBER"
+              # Extract PR number from URL using gh pr view
+              NEW_PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
+
+              echo "Created backport PR #$NEW_PR_NUMBER ($PR_URL)"
             fi
 
             # Display PR information (for both dry-run and real mode)
@@ -447,23 +450,26 @@ jobs:
               fi
 
               echo "  Creating pull request..."
-              # Create the pull request
-              NEW_PR_NUMBER=$(gh pr create \
+              # Create the pull request (returns URL like https://github.com/owner/repo/pull/123)
+              PR_URL=$(gh pr create \
                 --title "[$BRANCH] $PR_TITLE (#$PR_NUMBER)" \
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
                 $DRAFT_FLAG \
-                --repo "${{ github.repository }}" \
-                --json number --jq '.number' 2>/dev/null || echo "")
+                --repo "${{ github.repository }}" 2>&1)
 
-              if [ -z "$NEW_PR_NUMBER" ]; then
+              if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
                 echo "Error: Failed to create PR for branch $NEW_BRANCH"
+                echo "$PR_URL"
                 git checkout main
                 continue
               fi
 
-              echo "Created forwardport PR #$NEW_PR_NUMBER"
+              # Extract PR number from URL using gh pr view
+              NEW_PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
+
+              echo "Created forwardport PR #$NEW_PR_NUMBER ($PR_URL)"
             fi
 
             # Display PR information (for both dry-run and real mode)
