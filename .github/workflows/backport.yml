@@ -120,7 +120,7 @@ jobs:
       - name: Process backports
         if: steps.extract-labels.outputs.backport_branches != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CREATE_PR_VITESS_BOT }}
         run: |
           PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
           PR_TITLE="${{ steps.pr-info.outputs.pr_title }}"
@@ -350,7 +350,7 @@ jobs:
       - name: Process forwardports
         if: steps.extract-labels.outputs.forwardport_branches != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CREATE_PR_VITESS_BOT }}
         run: |
           PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
           PR_TITLE="${{ steps.pr-info.outputs.pr_title }}"
