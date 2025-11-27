@@ -281,7 +281,9 @@ jobs:
             else
               # Apply labels one by one to handle potential issues
               for label in "${LABELS_ARRAY[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>/dev/null || echo "Warning: Could not add label '$label'"
+                if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>&1; then
+                  echo "Warning: Could not add label '$label'"
+                fi
               done
             fi
 
@@ -303,7 +305,10 @@ jobs:
                 echo "  ------------------------------------------------"
                 echo "$CONFLICT_COMMENT" | sed 's/^/  /'
               else
-                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" || true
+                if ! OUTPUT=$(gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" 2>&1); then
+                  echo "Warning: Could not add conflict resolution comment"
+                  echo "  Error: $OUTPUT"
+                fi
               fi
             fi
 
@@ -341,7 +346,10 @@ jobs:
 
               # Request reviewers
               for reviewer in "${REVIEWERS[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>&1); then
+                  echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                  echo "  Error: $OUTPUT"
+                fi
               done
             fi
 
@@ -513,7 +521,9 @@ jobs:
             else
               # Apply labels one by one to handle potential issues
               for label in "${LABELS_ARRAY[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>/dev/null || echo "Warning: Could not add label '$label'"
+                if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>&1; then
+                  echo "Warning: Could not add label '$label'"
+                fi
               done
             fi
 
@@ -535,7 +545,10 @@ jobs:
                 echo "  ------------------------------------------------"
                 echo "$CONFLICT_COMMENT" | sed 's/^/  /'
               else
-                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" || true
+                if ! OUTPUT=$(gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" 2>&1); then
+                  echo "Warning: Could not add conflict resolution comment"
+                  echo "  Error: $OUTPUT"
+                fi
               fi
             fi
 
@@ -573,7 +586,10 @@ jobs:
 
               # Request reviewers
               for reviewer in "${REVIEWERS[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>&1); then
+                  echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                  echo "  Error: $OUTPUT"
+                fi
               done
             fi
 
