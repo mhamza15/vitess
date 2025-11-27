@@ -223,8 +223,7 @@ jobs:
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
-                $DRAFT_FLAG \
-                --repo "${{ github.repository }}" 2>&1)
+                $DRAFT_FLAG 2>&1)
 
               if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
                 echo "Error: Failed to create PR for branch $NEW_BRANCH"
@@ -282,7 +281,7 @@ jobs:
             else
               # Apply labels one by one to handle potential issues
               for label in "${LABELS_ARRAY[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" --repo "${{ github.repository }}" 2>/dev/null || echo "Warning: Could not add label '$label'"
+                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>/dev/null || echo "Warning: Could not add label '$label'"
               done
             fi
 
@@ -293,7 +292,7 @@ jobs:
               CONFLICT_COMMENT+="Make sure you replace \`origin\` by the name of the ${{ github.repository_owner }}/${{ github.event.repository.name }} remote"$'\n'
               CONFLICT_COMMENT+="\`\`\`"$'\n'
               CONFLICT_COMMENT+="git fetch --all"$'\n'
-              CONFLICT_COMMENT+="gh pr checkout ${NEW_PR_NUMBER} -R ${{ github.repository }}"$'\n'
+              CONFLICT_COMMENT+="gh pr checkout ${NEW_PR_NUMBER}"$'\n'
               CONFLICT_COMMENT+="git reset --hard origin/${BRANCH}"$'\n'
               CONFLICT_COMMENT+="git cherry-pick -m 1 ${MERGE_COMMIT_SHA}"$'\n'
               CONFLICT_COMMENT+="\`\`\`"
@@ -304,7 +303,7 @@ jobs:
                 echo "  ------------------------------------------------"
                 echo "$CONFLICT_COMMENT" | sed 's/^/  /'
               else
-                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" --repo "${{ github.repository }}" || true
+                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" || true
               fi
             fi
 
@@ -342,7 +341,7 @@ jobs:
 
               # Request reviewers
               for reviewer in "${REVIEWERS[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" --repo "${{ github.repository }}" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
               done
             fi
 
@@ -456,8 +455,7 @@ jobs:
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
-                $DRAFT_FLAG \
-                --repo "${{ github.repository }}" 2>&1)
+                $DRAFT_FLAG 2>&1)
 
               if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
                 echo "Error: Failed to create PR for branch $NEW_BRANCH"
@@ -515,7 +513,7 @@ jobs:
             else
               # Apply labels one by one to handle potential issues
               for label in "${LABELS_ARRAY[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" --repo "${{ github.repository }}" 2>/dev/null || echo "Warning: Could not add label '$label'"
+                gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>/dev/null || echo "Warning: Could not add label '$label'"
               done
             fi
 
@@ -537,7 +535,7 @@ jobs:
                 echo "  ------------------------------------------------"
                 echo "$CONFLICT_COMMENT" | sed 's/^/  /'
               else
-                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" --repo "${{ github.repository }}" || true
+                gh pr comment "$NEW_PR_NUMBER" --body "$CONFLICT_COMMENT" || true
               fi
             fi
 
@@ -575,7 +573,7 @@ jobs:
 
               # Request reviewers
               for reviewer in "${REVIEWERS[@]}"; do
-                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" --repo "${{ github.repository }}" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
+                gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>/dev/null || echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
               done
             fi
 
