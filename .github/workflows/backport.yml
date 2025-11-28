@@ -25,21 +25,32 @@ jobs:
     name: Backport/Forwardport PR
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Get GitHub App User ID
+        id: get-user-id
+        run: echo "user-id=$(gh api "/users/${{ steps.app-token.outputs.app-slug }}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --global user.email '${{ steps.get-user-id.outputs.user-id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.CREATE_PR_VITESS_BOT }}
+          token: ${{ steps.app-token.outputs.token }}
 
-      - name: Configure Git
-        run: |
-          git config --global user.name "vitess-bot[bot]"
-          git config --global user.email "108069721+vitess-bot[bot]@users.noreply.github.com"
-
-      - name: Get PR information
-        id: pr-info
+      - name: Perform backport/forwardport
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # Determine PR number and dry-run mode based on trigger type
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -82,13 +93,6 @@ jobs:
           echo "Author: $PR_AUTHOR"
           echo "Merge commit: $MERGE_COMMIT_SHA"
 
-      - name: Extract backport and forwardport labels
-        id: extract-labels
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
-
           # Get all labels from the PR
           LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
 
@@ -117,25 +121,12 @@ jobs:
             echo "Will forwardport PR #$PR_NUMBER to branches: $FORWARDPORT_BRANCHES"
           fi
 
-      - name: Process backports
-        if: steps.extract-labels.outputs.backport_branches != ''
-        env:
-          GH_TOKEN: ${{ secrets.CREATE_PR_VITESS_BOT }}
-        run: |
-          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
-          PR_TITLE="${{ steps.pr-info.outputs.pr_title }}"
-          PR_AUTHOR="${{ steps.pr-info.outputs.pr_author }}"
-          MERGE_COMMIT_SHA="${{ steps.pr-info.outputs.merge_commit_sha }}"
-          OTHER_LABELS='${{ steps.extract-labels.outputs.other_labels }}'
-          DRY_RUN="${{ steps.pr-info.outputs.dry_run }}"
+          # Backport processing
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "🔍 DRY RUN: Backport Processing"
             echo "================================"
           fi
-
-          # Read backport branches
-          BACKPORT_BRANCHES="${{ steps.extract-labels.outputs.backport_branches }}"
 
           # Process each backport branch
           while IFS= read -r BRANCH; do
@@ -357,25 +348,12 @@ jobs:
             git checkout main
           done <<< "$BACKPORT_BRANCHES"
 
-      - name: Process forwardports
-        if: steps.extract-labels.outputs.forwardport_branches != ''
-        env:
-          GH_TOKEN: ${{ secrets.CREATE_PR_VITESS_BOT }}
-        run: |
-          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
-          PR_TITLE="${{ steps.pr-info.outputs.pr_title }}"
-          PR_AUTHOR="${{ steps.pr-info.outputs.pr_author }}"
-          MERGE_COMMIT_SHA="${{ steps.pr-info.outputs.merge_commit_sha }}"
-          OTHER_LABELS='${{ steps.extract-labels.outputs.other_labels }}'
-          DRY_RUN="${{ steps.pr-info.outputs.dry_run }}"
+          # Forwardport processing
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "🔍 DRY RUN: Forwardport Processing"
             echo "==================================="
           fi
-
-          # Read forwardport branches
-          FORWARDPORT_BRANCHES="${{ steps.extract-labels.outputs.forwardport_branches }}"
 
           # Process each forwardport branch
           while IFS= read -r BRANCH; do
