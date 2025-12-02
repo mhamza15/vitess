@@ -247,35 +247,26 @@ jobs:
               echo "  Repository: ${{ github.repository }}"
             fi
 
-            # Add labels - build array from OTHER_LABELS and add port type specific labels
-            LABELS_ARRAY=()
-
-            # Add labels from original PR
-            while IFS= read -r label; do
-              [ -n "$label" ] && LABELS_ARRAY+=("$label")
-            done < <(echo "$OTHER_LABELS" | jq -r '.[]' 2>/dev/null || true)
-
-            # Add conflict-specific labels
+            # Build labels JSON array from OTHER_LABELS and add port type specific labels
             if [ "$CONFLICT" = true ]; then
-              LABELS_ARRAY+=("Merge Conflict" "Skip CI" "Backport")
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Backport"]')
             else
-              LABELS_ARRAY+=("Backport")
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Backport"]')
             fi
 
             # Apply labels
             if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would add labels:"
-              for label in "${LABELS_ARRAY[@]}"; do
+              echo "$LABELS_JSON" | jq -r '.[]' | while read -r label; do
                 echo "    - $label"
               done
             else
-              # Apply labels one by one to handle potential issues
-              for label in "${LABELS_ARRAY[@]}"; do
-                if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>&1; then
-                  echo "Warning: Could not add label '$label'"
-                fi
-              done
+              # Convert JSON array to CSV and apply
+              LABELS_CSV=$(echo "$LABELS_JSON" | jq -r '@csv')
+              if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$LABELS_CSV" 2>&1; then
+                echo "Warning: Could not add labels: $LABELS_CSV"
+              fi
             fi
 
             # Add conflict comment if there were conflicts
@@ -303,45 +294,23 @@ jobs:
               fi
             fi
 
-            # Get reviewers from original PR and add original author
-            if [ "$DRY_RUN" = "true" ]; then
-              REVIEWER_USERS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.users[].login' 2>/dev/null || true)
-              REVIEWER_TEAMS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.teams[].slug' 2>/dev/null || true)
+            # Get reviewers from original PR and build JSON array
+            REVIEWERS_JSON=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
+              --jq '[.users[].login, .teams[].slug] + ["'"$PR_AUTHOR"'"]' 2>/dev/null || echo '["'"$PR_AUTHOR"'"]')
 
+            if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would request reviews from:"
-              [ -n "$REVIEWER_USERS" ] && echo "$REVIEWER_USERS" | while read -r user; do
-                [ -n "$user" ] && echo "    - $user (user)"
+              echo "$REVIEWERS_JSON" | jq -r '.[]' | while read -r reviewer; do
+                echo "    - $reviewer"
               done
-              [ -n "$REVIEWER_TEAMS" ] && echo "$REVIEWER_TEAMS" | while read -r team; do
-                [ -n "$team" ] && echo "    - $team (team)"
-              done
-              echo "    - $PR_AUTHOR (original PR author)"
             else
-              REVIEWER_USERS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.users[].login' 2>/dev/null || true)
-              REVIEWER_TEAMS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.teams[].slug' 2>/dev/null || true)
-
-              # Build reviewers list including original author
-              REVIEWERS=()
-              while IFS= read -r reviewer; do
-                [ -n "$reviewer" ] && REVIEWERS+=("$reviewer")
-              done < <(echo "$REVIEWER_USERS")
-              while IFS= read -r team; do
-                [ -n "$team" ] && REVIEWERS+=("$team")
-              done < <(echo "$REVIEWER_TEAMS")
-              REVIEWERS+=("$PR_AUTHOR")
-
-              # Request reviewers
-              for reviewer in "${REVIEWERS[@]}"; do
-                if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>&1); then
-                  echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
-                  echo "  Error: $OUTPUT"
-                fi
-              done
+              # Convert JSON array to CSV and request reviewers
+              REVIEWERS_CSV=$(echo "$REVIEWERS_JSON" | jq -r '@csv')
+              if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$REVIEWERS_CSV" 2>&1); then
+                echo "Note: Could not add some reviewers (may include PR author or have insufficient permissions)"
+                echo "  Error: $OUTPUT"
+              fi
             fi
 
             # Return to main branch for next iteration
@@ -474,35 +443,26 @@ jobs:
               echo "  Repository: ${{ github.repository }}"
             fi
 
-            # Add labels - build array from OTHER_LABELS and add port type specific labels
-            LABELS_ARRAY=()
-
-            # Add labels from original PR
-            while IFS= read -r label; do
-              [ -n "$label" ] && LABELS_ARRAY+=("$label")
-            done < <(echo "$OTHER_LABELS" | jq -r '.[]' 2>/dev/null || true)
-
-            # Add conflict-specific labels
+            # Build labels JSON array from OTHER_LABELS and add port type specific labels
             if [ "$CONFLICT" = true ]; then
-              LABELS_ARRAY+=("Merge Conflict" "Skip CI" "Forwardport")
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Forwardport"]')
             else
-              LABELS_ARRAY+=("Forwardport")
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Forwardport"]')
             fi
 
             # Apply labels
             if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would add labels:"
-              for label in "${LABELS_ARRAY[@]}"; do
+              echo "$LABELS_JSON" | jq -r '.[]' | while read -r label; do
                 echo "    - $label"
               done
             else
-              # Apply labels one by one to handle potential issues
-              for label in "${LABELS_ARRAY[@]}"; do
-                if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$label" 2>&1; then
-                  echo "Warning: Could not add label '$label'"
-                fi
-              done
+              # Convert JSON array to CSV and apply
+              LABELS_CSV=$(echo "$LABELS_JSON" | jq -r '@csv')
+              if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$LABELS_CSV" 2>&1; then
+                echo "Warning: Could not add labels: $LABELS_CSV"
+              fi
             fi
 
             # Add conflict comment if there were conflicts
@@ -530,45 +490,23 @@ jobs:
               fi
             fi
 
-            # Get reviewers from original PR and add original author
-            if [ "$DRY_RUN" = "true" ]; then
-              REVIEWER_USERS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.users[].login' 2>/dev/null || true)
-              REVIEWER_TEAMS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.teams[].slug' 2>/dev/null || true)
+            # Get reviewers from original PR and build JSON array
+            REVIEWERS_JSON=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
+              --jq '[.users[].login, .teams[].slug] + ["'"$PR_AUTHOR"'"]' 2>/dev/null || echo '["'"$PR_AUTHOR"'"]')
 
+            if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would request reviews from:"
-              [ -n "$REVIEWER_USERS" ] && echo "$REVIEWER_USERS" | while read -r user; do
-                [ -n "$user" ] && echo "    - $user (user)"
+              echo "$REVIEWERS_JSON" | jq -r '.[]' | while read -r reviewer; do
+                echo "    - $reviewer"
               done
-              [ -n "$REVIEWER_TEAMS" ] && echo "$REVIEWER_TEAMS" | while read -r team; do
-                [ -n "$team" ] && echo "    - $team (team)"
-              done
-              echo "    - $PR_AUTHOR (original PR author)"
             else
-              REVIEWER_USERS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.users[].login' 2>/dev/null || true)
-              REVIEWER_TEAMS=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/requested_reviewers" \
-                --jq '.teams[].slug' 2>/dev/null || true)
-
-              # Build reviewers list including original author
-              REVIEWERS=()
-              while IFS= read -r reviewer; do
-                [ -n "$reviewer" ] && REVIEWERS+=("$reviewer")
-              done < <(echo "$REVIEWER_USERS")
-              while IFS= read -r team; do
-                [ -n "$team" ] && REVIEWERS+=("$team")
-              done < <(echo "$REVIEWER_TEAMS")
-              REVIEWERS+=("$PR_AUTHOR")
-
-              # Request reviewers
-              for reviewer in "${REVIEWERS[@]}"; do
-                if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$reviewer" 2>&1); then
-                  echo "Note: Could not add reviewer '$reviewer' (may be PR author or have insufficient permissions)"
-                  echo "  Error: $OUTPUT"
-                fi
-              done
+              # Convert JSON array to CSV and request reviewers
+              REVIEWERS_CSV=$(echo "$REVIEWERS_JSON" | jq -r '@csv')
+              if ! OUTPUT=$(gh pr edit "$NEW_PR_NUMBER" --add-reviewer "$REVIEWERS_CSV" 2>&1); then
+                echo "Note: Could not add some reviewers (may include PR author or have insufficient permissions)"
+                echo "  Error: $OUTPUT"
+              fi
             fi
 
             # Return to main branch for next iteration
