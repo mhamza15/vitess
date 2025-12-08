@@ -27,24 +27,24 @@ import (
 	"vitess.io/vitess/go/vt/topo/topoproto"
 )
 
-// SessionBalancer implements the TabletBalancer interface. For a given session,
+// sessionBalancer implements the TabletBalancer interface. For a given session,
 // it will return the same tablet for its duration, with preference to tablets in
 // the local cell.
-type SessionBalancer struct {
+type sessionBalancer struct {
 	// localCell is the cell the gateway is currently running in.
 	localCell string
 }
 
-// NewSessionBalancer creates a new session balancer.
-func NewSessionBalancer(localCell string) TabletBalancer {
-	return &SessionBalancer{localCell: localCell}
+// newSessionBalancer creates a new session balancer.
+func newSessionBalancer(localCell string) TabletBalancer {
+	return &sessionBalancer{localCell: localCell}
 }
 
 // Pick is the main entry point to the balancer.
 //
 // For a given session, it will return the same tablet for its duration, with preference to tablets
 // in the local cell.
-func (b *SessionBalancer) Pick(target *querypb.Target, tablets []*discovery.TabletHealth, opts PickOpts) *discovery.TabletHealth {
+func (b *sessionBalancer) Pick(target *querypb.Target, tablets []*discovery.TabletHealth, opts PickOpts) *discovery.TabletHealth {
 	if opts.SessionUUID == "" {
 		return nil
 	}
@@ -96,12 +96,12 @@ func tabletAlias(tablet *discovery.TabletHealth) string {
 }
 
 // isLocal returns true if the tablet is in the local cell.
-func (b *SessionBalancer) isLocal(tablet *discovery.TabletHealth) bool {
+func (b *sessionBalancer) isLocal(tablet *discovery.TabletHealth) bool {
 	return tablet.Tablet.Alias.Cell == b.localCell
 }
 
 // DebugHandler provides a summary of the session balancer state.
-func (b *SessionBalancer) DebugHandler(w http.ResponseWriter, r *http.Request) {
+func (b *sessionBalancer) DebugHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Local cell: %s", b.localCell)
 }
