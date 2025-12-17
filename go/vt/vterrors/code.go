@@ -27,6 +27,7 @@ import (
 // This will enable the auto-documentation of error code in the website repository.
 
 var (
+	VT03000 = errorWithState("VT03001", vtrpcpb.Code_INVALID_ARGUMENT, SyntaxError, "testing error code generation", "hello testing error code gen")
 	VT03001 = errorWithState("VT03001", vtrpcpb.Code_INVALID_ARGUMENT, SyntaxError, "aggregate functions take a single argument '%s'", "This aggregation function only takes a single argument.")
 	VT03002 = errorWithState("VT03002", vtrpcpb.Code_INVALID_ARGUMENT, ForbidSchemaChange, "changing schema from '%s' to '%s' is not allowed", "This schema change is not allowed. You cannot change the keyspace of a table.")
 	VT03003 = errorWithState("VT03003", vtrpcpb.Code_INVALID_ARGUMENT, UnknownTable, "unknown table '%s' in MULTI DELETE", "The specified table in this DELETE statement is unknown.")
@@ -127,6 +128,7 @@ var (
 	// Errors is a list of errors that must match all the variables
 	// defined above to enable auto-documentation of error codes.
 	Errors = []func(args ...any) *VitessError{
+		VT03000,
 		VT03001,
 		VT03002,
 		VT03003,
