@@ -207,13 +207,24 @@ jobs:
                 DRAFT_FLAG="--draft"
               fi
 
+              # Build labels JSON array from OTHER_LABELS and add port type specific labels
+              if [ "$CONFLICT" = true ]; then
+                LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Backport"]')
+              else
+                LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Backport"]')
+              fi
+
+              # Convert JSON array to comma-separated list for gh pr create --label
+              LABELS_LIST=$(echo "$LABELS_JSON" | jq -r 'join(",")')
+
               echo "  Creating pull request..."
-              # Create the pull request (returns URL like https://github.com/owner/repo/pull/123)
+              # Create the pull request with labels (returns URL like https://github.com/owner/repo/pull/123)
               PR_URL=$(gh pr create \
                 --title "[$BRANCH] $PR_TITLE (#$PR_NUMBER)" \
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
+                --label "$LABELS_LIST" \
                 $DRAFT_FLAG 2>&1)
 
               if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
@@ -227,6 +238,13 @@ jobs:
               NEW_PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
 
               echo "Created backport PR #$NEW_PR_NUMBER ($PR_URL)"
+            fi
+
+            # Build labels JSON array for dry-run display
+            if [ "$CONFLICT" = true ]; then
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Backport"]')
+            else
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Backport"]')
             fi
 
             # Display PR information (for both dry-run and real mode)
@@ -245,28 +263,11 @@ jobs:
                 echo "  Draft: false"
               fi
               echo "  Repository: ${{ github.repository }}"
-            fi
-
-            # Build labels JSON array from OTHER_LABELS and add port type specific labels
-            if [ "$CONFLICT" = true ]; then
-              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Backport"]')
-            else
-              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Backport"]')
-            fi
-
-            # Apply labels
-            if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would add labels:"
               echo "$LABELS_JSON" | jq -r '.[]' | while read -r label; do
                 echo "    - $label"
               done
-            else
-              # Convert JSON array to CSV and apply
-              LABELS_CSV=$(echo "$LABELS_JSON" | jq -r '@csv')
-              if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$LABELS_CSV" 2>&1; then
-                echo "Warning: Could not add labels: $LABELS_CSV"
-              fi
             fi
 
             # Add conflict comment if there were conflicts
@@ -403,13 +404,24 @@ jobs:
                 DRAFT_FLAG="--draft"
               fi
 
+              # Build labels JSON array from OTHER_LABELS and add port type specific labels
+              if [ "$CONFLICT" = true ]; then
+                LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Forwardport"]')
+              else
+                LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Forwardport"]')
+              fi
+
+              # Convert JSON array to comma-separated list for gh pr create --label
+              LABELS_LIST=$(echo "$LABELS_JSON" | jq -r 'join(",")')
+
               echo "  Creating pull request..."
-              # Create the pull request (returns URL like https://github.com/owner/repo/pull/123)
+              # Create the pull request with labels (returns URL like https://github.com/owner/repo/pull/123)
               PR_URL=$(gh pr create \
                 --title "[$BRANCH] $PR_TITLE (#$PR_NUMBER)" \
                 --body "$PR_BODY" \
                 --base "$BRANCH" \
                 --head "$NEW_BRANCH" \
+                --label "$LABELS_LIST" \
                 $DRAFT_FLAG 2>&1)
 
               if [ $? -ne 0 ] || [ -z "$PR_URL" ]; then
@@ -423,6 +435,13 @@ jobs:
               NEW_PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
 
               echo "Created forwardport PR #$NEW_PR_NUMBER ($PR_URL)"
+            fi
+
+            # Build labels JSON array for dry-run display
+            if [ "$CONFLICT" = true ]; then
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Forwardport"]')
+            else
+              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Forwardport"]')
             fi
 
             # Display PR information (for both dry-run and real mode)
@@ -441,28 +460,11 @@ jobs:
                 echo "  Draft: false"
               fi
               echo "  Repository: ${{ github.repository }}"
-            fi
-
-            # Build labels JSON array from OTHER_LABELS and add port type specific labels
-            if [ "$CONFLICT" = true ]; then
-              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Merge Conflict", "Skip CI", "Forwardport"]')
-            else
-              LABELS_JSON=$(echo "$OTHER_LABELS" | jq -c '. + ["Forwardport"]')
-            fi
-
-            # Apply labels
-            if [ "$DRY_RUN" = "true" ]; then
               echo ""
               echo "  [DRY RUN] Would add labels:"
               echo "$LABELS_JSON" | jq -r '.[]' | while read -r label; do
                 echo "    - $label"
               done
-            else
-              # Convert JSON array to CSV and apply
-              LABELS_CSV=$(echo "$LABELS_JSON" | jq -r '@csv')
-              if ! gh pr edit "$NEW_PR_NUMBER" --add-label "$LABELS_CSV" 2>&1; then
-                echo "Warning: Could not add labels: $LABELS_CSV"
-              fi
             fi
 
             # Add conflict comment if there were conflicts
