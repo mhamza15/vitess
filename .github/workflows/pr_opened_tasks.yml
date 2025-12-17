@@ -6,10 +6,6 @@ on:
   pull_request_target:
     types: [opened]
 
-permissions:
-  pull-requests: write
-  contents: read
-
 jobs:
   # Skip PRs with "Backport" or "Forwardport" labels since those are automated.
   check_labels:
@@ -19,10 +15,18 @@ jobs:
       skip: ${{ steps.check_labels.outputs.skip }}
 
     steps:
+      - name: Generate GitHub App token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-pull-requests: read
+
       - name: Check for Backport or Forwardport labels
         id: check_labels
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # Get labels for this pull request
           LABELS=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels --jq '.[].name')
@@ -42,6 +46,17 @@ jobs:
     if: needs.check_labels.outputs.skip != 'true'
 
     steps:
+      - name: Generate GitHub App token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Set token in environment
+        run: echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
+
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -49,8 +64,6 @@ jobs:
           persist-credentials: 'false'
 
       - name: Add Review Checklist Comment
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh pr comment ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
@@ -63,9 +76,18 @@ jobs:
     if: needs.check_labels.outputs.skip != 'true'
 
     steps:
+      - name: Generate GitHub App token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Set token in environment
+        run: echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
+
       - name: Add Initial Labels
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
