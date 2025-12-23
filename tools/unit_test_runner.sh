@@ -67,7 +67,7 @@ fi
 all_except_flaky_tests=$(echo "$packages_with_tests" | grep -vE ".+ .+_flaky_test\.go" | cut -d" " -f1 | grep -v "endtoend")
 flaky_tests=$(echo "$packages_with_tests" | grep -E ".+ .+_flaky_test\.go" | cut -d" " -f1)
 
-gotestsum -- $VT_GO_PARALLEL -count=1 $all_except_flaky_tests
+gotestsum --junitfile report.xml -- $VT_GO_PARALLEL -count=1 $all_except_flaky_tests
 if [ $? -ne 0 ]; then
   echo "ERROR: Go unit tests failed. See above for errors."
   echo
@@ -83,7 +83,7 @@ for pkg in $flaky_tests; do
   max_attempts=3
   attempt=1
   # Set a timeout because some tests may deadlock when they flake.
-  until gotestsum -- -timeout 5m $VT_GO_PARALLEL $pkg -count=1; do
+  until gotestsum --junitfile report.xml -- -timeout 5m $VT_GO_PARALLEL $pkg -count=1; do
     echo "FAILED (try $attempt/$max_attempts) in $pkg (return code $?). See above for errors."
     if [ $((++attempt)) -gt $max_attempts ]; then
       echo "ERROR: Flaky Go unit tests in package $pkg failed too often (after $max_attempts retries). Please reduce the flakiness."
