@@ -107,8 +107,18 @@ jobs:
         # install JUnit report formatter
         go install github.com/vitessio/go-junit-report@{{.GoJunitReport.SHA}} # {{.GoJunitReport.Comment}}
 
-    - name: Run make tools
+    - name: Cache make tools
       if: steps.changes.outputs.unit_tests == 'true'
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      id: tools-cache
+      with:
+        path: |
+          dist
+          bin
+        key: tools-${{`{{ runner.os }}`}}-${{`{{ hashFiles('build.env', 'bootstrap.sh') }}`}}
+
+    - name: Run make tools
+      if: steps.changes.outputs.unit_tests == 'true' && steps.tools-cache.outputs.cache-hit != 'true'
       run: |
         make tools
 
