@@ -52,7 +52,7 @@ if [[ "$VTEVALENGINETEST" == "0" ]]; then
   packages_with_tests=$(echo "$packages_with_tests" | grep -v "evalengine")
 fi
 
-GOTESTSUM_ARGS="--format=testname --rerun-fails=3"
+GOTESTSUM_ARGS="--rerun-fails=3"
 
 if [[ -n "$JUNIT_OUTPUT" ]]; then
   GOTESTSUM_ARGS="$GOTESTSUM_ARGS --junitfile $JUNIT_OUTPUT"
