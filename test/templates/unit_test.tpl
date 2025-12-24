@@ -137,6 +137,9 @@ jobs:
         # testing, e.g. MySQL 5.7 vs 8.0.
         export CI_DB_PLATFORM="{{.Platform}}"
 
+        export JUNIT_OUTPUT="report.xml"
+        export JSON_OUTPUT="report.json"
+
         make unit_test
 
     - name: Record test results in launchable if PR is not a draft
