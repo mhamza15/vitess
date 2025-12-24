@@ -148,6 +148,13 @@ jobs:
         # send recorded tests to launchable
         launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
 
+    - name: Upload test results as artifact
+      if: steps.changes.outputs.unit_tests == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: unit-test-results
+        path: report.json
+
     - name: Test Summary
       if: steps.changes.outputs.unit_tests == 'true' && !cancelled()
       uses: dorny/test-reporter@v2
