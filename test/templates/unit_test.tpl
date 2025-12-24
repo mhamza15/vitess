@@ -147,7 +147,13 @@ jobs:
 
     - name: Test Summary
       if: steps.changes.outputs.unit_tests == 'true' && !cancelled()
-      uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86 # v2.4
+      uses: dorny/test-reporter@v2
       with:
-        paths: "report.xml"
-        show: "fail"
+        name: Unit Test Results
+        path: report.xml
+        reporter: java-junit
+        fail-on-error: true
+        list-suites: failed
+        list-tests: failed
+        max-annotations: 50
+        only-summary: false
