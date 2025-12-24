@@ -150,8 +150,8 @@ jobs:
       uses: dorny/test-reporter@v2
       with:
         name: Unit Test Results
-        path: report.xml
-        reporter: java-junit
+        path: report.json
+        reporter: golang-json
         fail-on-error: true
         list-suites: failed
         list-tests: failed
