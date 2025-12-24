@@ -23,7 +23,7 @@ env:
 jobs:
   test:
     name: Unit Test (evalengine_mysql57)
-    runs-on: ubuntu-24.04
+    runs-on: oracle-vm-16cpu-64gb-x86-64
 
     steps:
     - name: Skip CI
