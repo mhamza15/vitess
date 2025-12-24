@@ -52,4 +52,4 @@ if [[ "$VTEVALENGINETEST" == "0" ]]; then
   packages_with_tests=$(echo "$packages_with_tests" | grep -v "evalengine")
 fi
 
-gotestsum --junitfile report.xml --rerun-fails=3 --packages="$packages_with_tests" -- $VT_GO_PARALLEL -count=1
+gotestsum --format=testname --junitfile report.xml --rerun-fails=3 --packages="$packages_with_tests" -- $VT_GO_PARALLEL
