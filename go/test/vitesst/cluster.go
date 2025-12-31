@@ -53,11 +53,11 @@ import (
 )
 
 type (
-	// Cluster represents a running Vitess cluster.
-	Cluster struct {
+	// cluster represents a running Vitess cluster.
+	cluster struct {
 		opts    *clusterOptions
 		network *testcontainers.DockerNetwork
-		cell    string
+		cells   []string
 
 		// vitessImage is the Docker image name for Vitess components.
 		vitessImage string
@@ -65,6 +65,7 @@ type (
 		etcd      testcontainers.Container
 		vtctld    testcontainers.Container
 		vtgate    testcontainers.Container
+		vtorc     testcontainers.Container
 		keyspaces map[string]*keyspaceInfo
 	}
 
@@ -76,6 +77,7 @@ type (
 	// tabletInfo holds runtime information about a tablet.
 	tabletInfo struct {
 		uid       int
+		cell      string
 		container testcontainers.Container
 	}
 )
@@ -84,23 +86,23 @@ type (
 // It registers cleanup with t.Cleanup() for automatic teardown.
 // Requires at least one keyspace to be configured.
 // The cluster uses the prebuilt "vitesst:latest" Docker image.
-func NewCluster(t *testing.T, opts ...ClusterOption) *Cluster {
+func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
 	t.Helper()
 
 	// Apply options
-	clusterOpts := defaultClusterOptions()
+	config := defaultClusterOptions()
 	for _, opt := range opts {
-		opt.apply(clusterOpts)
+		opt.apply(config)
 	}
 
 	// Validate options
-	require.NotEmpty(t, clusterOpts.keyspaces, "at least one keyspace is required")
+	require.NotEmpty(t, config.keyspaces, "at least one keyspace is required")
 
 	ctx := t.Context()
 
-	c := &Cluster{
-		opts:        clusterOpts,
-		cell:        clusterOpts.cell,
+	c := &cluster{
+		opts:        config,
+		cells:       config.cells,
 		vitessImage: getVitesstImage(),
 		keyspaces:   make(map[string]*keyspaceInfo),
 	}
@@ -126,15 +128,24 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *Cluster {
 	c.vtctld, err = c.startVTCtld(ctx)
 	require.NoError(t, err, "failed to start vtctld")
 
-	// Initialize cell
-	err = c.initCell(ctx)
-	require.NoError(t, err, "failed to initialize cell")
+	// Initialize cells
+	for _, cell := range c.cells {
+		err = c.initCell(ctx, cell)
+		require.NoError(t, err, "failed to initialize cell %s", cell)
+	}
 
 	// Set up keyspaces
 	tabletUID := 100
-	for _, ks := range clusterOpts.keyspaces {
+	for _, ks := range config.keyspaces {
 		tabletUID, err = c.setupKeyspace(t, ks, tabletUID)
 		require.NoError(t, err, "failed to setup keyspace %s", ks.name)
+	}
+
+	// Start VTOrc if enabled
+	if config.vtorcEnabled {
+		t.Log("Starting VTOrc...")
+		c.vtorc, err = c.startVTOrc(ctx)
+		require.NoError(t, err, "failed to start VTOrc")
 	}
 
 	// Start vtgate
@@ -150,7 +161,7 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *Cluster {
 //
 //	conn := cluster.Connect(t)
 //	defer conn.Close()
-func (c *Cluster) Connect(t *testing.T) *mysql.Conn {
+func (c *cluster) Connect(t *testing.T) *mysql.Conn {
 	t.Helper()
 
 	conn, err := c.connect(t.Context(), "")
@@ -163,7 +174,7 @@ func (c *Cluster) Connect(t *testing.T) *mysql.Conn {
 //
 //	conn := cluster.ConnectKeyspace(t, "ks")
 //	defer conn.Close()
-func (c *Cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
+func (c *cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
 	t.Helper()
 
 	conn, err := c.connect(t.Context(), keyspace)
@@ -173,7 +184,7 @@ func (c *Cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
 }
 
 // connect creates a MySQL connection to vtgate.
-func (c *Cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, error) {
+func (c *cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, error) {
 	host, err := c.vtgate.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vtgate host: %w", err)
@@ -195,7 +206,7 @@ func (c *Cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, er
 }
 
 // setupKeyspace sets up a keyspace with tablets and schema.
-func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (int, error) {
+func (c *cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (int, error) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -203,15 +214,15 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 
 	// Apply defaults
 	if ks.shardCount == 0 {
-		ks.shardCount = DefaultShardCount
+		ks.shardCount = defaultShardCount
 	}
 
 	if ks.replicaCount == 0 {
-		ks.replicaCount = DefaultReplicaCount
+		ks.replicaCount = defaultReplicaCount
 	}
 
 	if ks.durabilityPolicy == "" {
-		ks.durabilityPolicy = DefaultDurabilityPolicy
+		ks.durabilityPolicy = defaultDurabilityPolicy
 	}
 
 	// Create keyspace
@@ -229,30 +240,38 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 	ksInfo := &keyspaceInfo{shards: make(map[string][]*tabletInfo)}
 	c.keyspaces[ks.name] = ksInfo
 
-	// Start tablets for each shard
+	// Start tablets for each shard, distributing across cells round-robin
 	tabletUID := startUID
+	cellIndex := 0
 	for _, shard := range shardRanges {
+		// Track the first tablet for this shard (will be the primary)
+		var primaryTablet *tabletInfo
+
 		// replicaCount includes the primary:
 		// 1 = primary only, 2 = primary + 1 replica, etc.
 		for i := 0; i < ks.replicaCount; i++ {
-			t.Logf("Starting tablet for %s/%s (uid=%d)...", ks.name, shard, tabletUID)
+			cell := c.cells[cellIndex%len(c.cells)]
+			cellIndex++
 
-			container, err := c.startVTTablet(ctx, ks.name, shard, tabletUID)
+			t.Logf("Starting tablet for %s/%s (uid=%d, cell=%s)...", ks.name, shard, tabletUID, cell)
+
+			container, err := c.startVTTablet(ctx, ks.name, shard, tabletUID, cell)
 			if err != nil {
 				return tabletUID, fmt.Errorf("failed to start tablet for shard %s: %w", shard, err)
 			}
-			ksInfo.shards[shard] = append(ksInfo.shards[shard], &tabletInfo{uid: tabletUID, container: container})
-
-			// Initialize shard primary on the first tablet
-			if i == 0 {
-				t.Logf("Initializing shard primary for %s/%s...", ks.name, shard)
-				tabletAlias := fmt.Sprintf("%s-%d", c.cell, tabletUID)
-				if err := c.vtctldExec(ctx, "InitShardPrimary", "--force", ks.name+"/"+shard, tabletAlias); err != nil {
-					return tabletUID, fmt.Errorf("failed to initialize shard primary: %w", err)
-				}
+			tablet := &tabletInfo{uid: tabletUID, cell: cell, container: container}
+			ksInfo.shards[shard] = append(ksInfo.shards[shard], tablet)
+			if primaryTablet == nil {
+				primaryTablet = tablet
 			}
-
 			tabletUID++
+		}
+
+		// Initialize shard primary
+		t.Logf("Initializing shard primary for %s/%s...", ks.name, shard)
+		tabletAlias := fmt.Sprintf("%s-%d", primaryTablet.cell, primaryTablet.uid)
+		if err := c.vtctldExec(ctx, "InitShardPrimary", "--force", "--wait-replicas-timeout", "30s", ks.name+"/"+shard, tabletAlias); err != nil {
+			return tabletUID, fmt.Errorf("failed to initialize shard primary: %w", err)
 		}
 	}
 
@@ -276,7 +295,7 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 }
 
 // String returns connection information for all cluster components.
-func (c *Cluster) String() string {
+func (c *cluster) String() string {
 	ctx := context.Background()
 
 	var sb strings.Builder
@@ -309,6 +328,16 @@ func (c *Cluster) String() string {
 		fmt.Fprintf(&sb, "  CLI:    vtctldclient --server %s:%d <command>\n", host, grpcPort.Int())
 	}
 
+	// VTOrc
+	if c.vtorc != nil {
+		host, _ := c.vtorc.Host(ctx)
+		httpPort, _ := c.vtorc.MappedPort(ctx, "16000/tcp")
+
+		sb.WriteString("\nVTOrc:\n")
+		fmt.Fprintf(&sb, "  HTTP:   http://%s:%d\n", host, httpPort.Int())
+		fmt.Fprintf(&sb, "  Health: http://%s:%d/debug/health\n", host, httpPort.Int())
+	}
+
 	// Keyspaces with shards and tablets
 	if len(c.keyspaces) > 0 {
 		sb.WriteString("\nKeyspaces:\n")
@@ -321,7 +350,7 @@ func (c *Cluster) String() string {
 
 			shardCount := ks.shardCount
 			if shardCount == 0 {
-				shardCount = DefaultShardCount
+				shardCount = defaultShardCount
 			}
 			shards, _ := generateShardRanges(shardCount)
 			for _, shard := range shards {
@@ -340,10 +369,12 @@ func (c *Cluster) String() string {
 }
 
 // cleanup terminates all containers and the network.
-func (c *Cluster) cleanup(t *testing.T) {
+func (c *cluster) cleanup(t *testing.T) {
+	t.Helper()
+
 	ctx := context.Background()
 
-	for _, container := range []testcontainers.Container{c.vtgate, c.vtctld, c.etcd} {
+	for _, container := range []testcontainers.Container{c.vtgate, c.vtorc, c.vtctld, c.etcd} {
 		if container != nil {
 			if err := container.Terminate(ctx); err != nil {
 				t.Logf("Warning: failed to terminate container: %v", err)

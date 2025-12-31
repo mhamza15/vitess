@@ -19,8 +19,7 @@ package vitesst
 // clusterOptions holds all cluster configuration.
 type clusterOptions struct {
 	keyspaces    []keyspaceConfig
-	cell         string
-	mysqlVersion string
+	cells        []string
 	vtgateArgs   []string
 	vttabletArgs []string
 	vtctldArgs   []string
@@ -34,15 +33,17 @@ type ClusterOption interface {
 	apply(*clusterOptions)
 }
 
-type cellOption string
+type cellsOption []string
 
-func (c cellOption) apply(opts *clusterOptions) {
-	opts.cell = string(c)
+func (c cellsOption) apply(opts *clusterOptions) {
+	opts.cells = c
 }
 
-// WithCell sets the cell name (default: "zone1").
-func WithCell(cell string) ClusterOption {
-	return cellOption(cell)
+// WithCells sets the cell names for the cluster.
+// If not provided, defaults to a single cell named "zone1".
+// Tablets are distributed across cells in a round-robin fashion.
+func WithCells(cells ...string) ClusterOption {
+	return cellsOption(cells)
 }
 
 type vtgateArgsOption []string
@@ -95,7 +96,6 @@ func WithVTOrc(args ...string) ClusterOption {
 // defaultClusterOptions returns a clusterOptions with all defaults applied.
 func defaultClusterOptions() *clusterOptions {
 	return &clusterOptions{
-		cell:         DefaultCell,
-		mysqlVersion: DefaultMySQLVersion,
+		cells: []string{defaultCell},
 	}
 }

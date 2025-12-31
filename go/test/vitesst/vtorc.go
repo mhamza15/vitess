@@ -20,60 +20,61 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// VTGate port constants.
+// VTOrc port constants.
 const (
-	vtgateHTTPPort = 15001
-	vtgateGRPCPort = 15999
+	vtorcHTTPPort = 16000
 )
 
-// startVTGate starts the vtgate container.
-func (c *cluster) startVTGate(ctx context.Context) (testcontainers.Container, error) {
+// startVTOrc starts the VTOrc container for automated failover management.
+func (c *cluster) startVTOrc(ctx context.Context) (testcontainers.Container, error) {
+	// VTOrc command with minimal configuration for test environments.
+	// VTOrc monitors tablets and handles automated failover.
 	args := []string{
-		"vtgate",
+		"vtorc",
 		"--topo-implementation", defaultTopoImplementation,
 		"--topo-global-server-address", "etcd:2379",
 		"--topo-global-root", topoGlobalRoot,
 		"--cell", c.cells[0],
-		"--cells-to-watch", strings.Join(c.cells, ","),
-		"--port", strconv.Itoa(vtgateHTTPPort),
-		"--grpc-port", strconv.Itoa(vtgateGRPCPort),
-		"--mysql-server-port", strconv.Itoa(defaultVTGateMySQLPort),
-		"--mysql-auth-server-impl", "none",
-		"--tablet-types-to-wait", "PRIMARY,REPLICA",
+		"--port", strconv.Itoa(vtorcHTTPPort),
+		"--instance-poll-time", "1s",
+		"--topo-information-refresh-duration", "3s",
+		"--alsologtostderr",
 	}
-	args = append(args, c.opts.vtgateArgs...)
+
+	// Append user-provided VTOrc args
+	args = append(args, c.opts.vtorcArgs...)
 
 	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image: c.vitessImage,
 			Cmd:   args,
 			ExposedPorts: []string{
-				fmt.Sprintf("%d/tcp", vtgateHTTPPort),
-				fmt.Sprintf("%d/tcp", vtgateGRPCPort),
-				fmt.Sprintf("%d/tcp", defaultVTGateMySQLPort),
+				fmt.Sprintf("%d/tcp", vtorcHTTPPort),
 			},
 			Networks: []string{c.network.Name},
 			NetworkAliases: map[string][]string{
-				c.network.Name: {"vtgate"},
+				c.network.Name: {"vtorc"},
 			},
-			WaitingFor: waitForVTGate(),
+			WaitingFor: waitForVTOrc(),
 		},
 		Started: true,
 	})
 }
 
-// waitForVTGate returns a wait strategy for vtgate readiness.
-// vtgate is ready when the MySQL protocol port is listening.
-func waitForVTGate() wait.Strategy {
-	return wait.ForHTTP("/debug/status").
-		WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtgateHTTPPort))).
+// waitForVTOrc returns a wait strategy for VTOrc readiness.
+// VTOrc is ready when the HTTP health endpoint returns successfully.
+func waitForVTOrc() wait.Strategy {
+	return wait.ForHTTP("/debug/health").
+		WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtorcHTTPPort))).
 		WithStartupTimeout(defaultStartupTimeout).
-		WithPollInterval(defaultPollInterval)
+		WithPollInterval(defaultPollInterval).
+		WithStatusCodeMatcher(func(status int) bool {
+			return status == 200
+		})
 }

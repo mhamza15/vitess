@@ -33,7 +33,7 @@ const (
 )
 
 // startEtcd starts the etcd container using the official etcd image.
-func (c *Cluster) startEtcd(ctx context.Context) (testcontainers.Container, error) {
+func (c *cluster) startEtcd(ctx context.Context) (testcontainers.Container, error) {
 	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image: etcdImage,

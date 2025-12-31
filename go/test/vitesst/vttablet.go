@@ -26,8 +26,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// startVTTablet starts a vttablet container with MySQL.
-func (c *Cluster) startVTTablet(ctx context.Context, keyspace, shard string, uid int) (testcontainers.Container, error) {
+// startVTTablet starts a vttablet container with MySQL in the specified cell.
+func (c *cluster) startVTTablet(ctx context.Context, keyspace, shard string, uid int, cell string) (testcontainers.Container, error) {
 	httpPort := 15100 + uid
 	grpcPort := 16100 + uid
 	alias := fmt.Sprintf("vttablet-%s-%s-%d", keyspace, shard, uid)
@@ -46,10 +46,9 @@ exec vttablet \
   --port %d \
   --grpc-port %d \
   --service-map 'grpc-queryservice,grpc-tabletmanager,grpc-updatestream' \
-  --mysql-server-version 8.0.35-vitess \
-  --enable-replication-reporter=false \
+  --enable-replication-reporter \
   %s
-`, uid, DefaultTopoImplementation, topoGlobalRoot, c.cell, uid, keyspace, shard, httpPort, grpcPort, strings.Join(c.opts.vttabletArgs, " "))
+`, uid, defaultTopoImplementation, topoGlobalRoot, cell, uid, keyspace, shard, httpPort, grpcPort, strings.Join(c.opts.vttabletArgs, " "))
 
 	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{

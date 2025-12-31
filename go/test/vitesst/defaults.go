@@ -17,27 +17,27 @@ limitations under the License.
 package vitesst
 
 const (
-	// DefaultCell is the default cell name.
-	DefaultCell = "zone1"
+	// defaultCell is the default cell name.
+	defaultCell = "zone1"
 
-	// DefaultMySQLVersion is the default MySQL version.
-	DefaultMySQLVersion = "8.0"
+	// defaultMySQLVersion is the default MySQL version.
+	defaultMySQLVersion = "8.0"
 
-	// DefaultShardCount is the default number of shards (unsharded).
-	DefaultShardCount = 1
+	// defaultShardCount is the default number of shards (unsharded).
+	defaultShardCount = 1
 
-	// DefaultReplicaCount is the default number of tablets per shard.
+	// defaultReplicaCount is the default number of tablets per shard.
 	// This count includes the primary: 1 = primary only, 2 = primary + 1 replica, etc.
-	DefaultReplicaCount = 1
+	defaultReplicaCount = 1
 
-	// DefaultDurabilityPolicy is the default durability policy.
-	DefaultDurabilityPolicy = "none"
+	// defaultDurabilityPolicy is the default durability policy.
+	defaultDurabilityPolicy = "none"
 
-	// DefaultVTGateMySQLPort is the default MySQL protocol port for vtgate.
-	DefaultVTGateMySQLPort = 15306
+	// defaultVTGateMySQLPort is the default MySQL protocol port for vtgate.
+	defaultVTGateMySQLPort = 15306
 
-	// DefaultTopoImplementation is the default topology server implementation.
-	DefaultTopoImplementation = "etcd2"
+	// defaultTopoImplementation is the default topology server implementation.
+	defaultTopoImplementation = "etcd2"
 
 	// vitesstImage is the prebuilt image of the current source.
 	vitesstImage = "vitesst:latest"
@@ -47,7 +47,4 @@ const (
 
 	// networkName is the Docker network name prefix.
 	networkName = "vitesst-net"
-
-	// imageName is the Docker image name for Vitess components.
-	imageName = "vitesst"
 )

@@ -79,3 +79,80 @@ func TestNewClusterSharded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result.Rows, 10)
 }
+
+func TestNewClusterWithReplicas(t *testing.T) {
+	t.Parallel()
+
+	cluster := NewCluster(t,
+		WithKeyspace("test_ks").
+			WithSchema(`CREATE TABLE t1 (id INT PRIMARY KEY, name VARCHAR(100))`).
+			WithVSchema(`{"sharded": false, "tables": {"t1": {}}}`).
+			WithReplicaCount(2). // 1 primary + 1 replica
+			WithDurabilityPolicy("semi_sync"),
+	)
+
+	conn := cluster.Connect(t)
+	defer conn.Close()
+
+	// Insert data
+	_, err := conn.ExecuteFetch("INSERT INTO test_ks.t1 (id, name) VALUES (1, 'test')", 1, false)
+	require.NoError(t, err)
+
+	// Select - data should be readable (replication working)
+	result, err := conn.ExecuteFetch("SELECT * FROM test_ks.t1 WHERE id = 1", 1, true)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
+	assert.Equal(t, "1", result.Rows[0][0].ToString())
+	assert.Equal(t, "test", result.Rows[0][1].ToString())
+}
+
+func TestNewClusterWithVTOrc(t *testing.T) {
+	t.Parallel()
+
+	cluster := NewCluster(t,
+		WithKeyspace("test_ks").
+			WithSchema(`CREATE TABLE t1 (id INT PRIMARY KEY, name VARCHAR(100))`).
+			WithVSchema(`{"sharded": false, "tables": {"t1": {}}}`).
+			WithReplicaCount(2). // 1 primary + 1 replica
+			WithDurabilityPolicy("semi_sync"),
+		WithVTOrc(), // Enable VTOrc for automated failover
+	)
+
+	conn := cluster.Connect(t)
+	defer conn.Close()
+
+	// Insert data
+	_, err := conn.ExecuteFetch("INSERT INTO test_ks.t1 (id, name) VALUES (1, 'test')", 1, false)
+	require.NoError(t, err)
+
+	// Select - verify data is accessible
+	result, err := conn.ExecuteFetch("SELECT * FROM test_ks.t1 WHERE id = 1", 1, true)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
+	assert.Equal(t, "test", result.Rows[0][1].ToString())
+}
+
+func TestNewClusterWithMultipleCells(t *testing.T) {
+	t.Parallel()
+
+	cluster := NewCluster(t,
+		WithCells("zone1", "zone2"),
+		WithKeyspace("test_ks").
+			WithSchema(`CREATE TABLE t1 (id INT PRIMARY KEY, name VARCHAR(100))`).
+			WithVSchema(`{"sharded": false, "tables": {"t1": {}}}`).
+			WithReplicaCount(2),
+	)
+
+	conn := cluster.Connect(t)
+	defer conn.Close()
+
+	// Insert data
+	_, err := conn.ExecuteFetch("INSERT INTO test_ks.t1 (id, name) VALUES (1, 'test')", 1, false)
+	require.NoError(t, err)
+
+	// Select - verify data is accessible
+	result, err := conn.ExecuteFetch("SELECT * FROM test_ks.t1 WHERE id = 1", 1, true)
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 1)
+	assert.Equal(t, "test", result.Rows[0][1].ToString())
+}

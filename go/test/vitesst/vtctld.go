@@ -19,6 +19,7 @@ package vitesst
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -32,16 +33,16 @@ const (
 )
 
 // startVTCtld starts the vtctld container.
-func (c *Cluster) startVTCtld(ctx context.Context) (testcontainers.Container, error) {
+func (c *cluster) startVTCtld(ctx context.Context) (testcontainers.Container, error) {
 	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image: c.vitessImage,
 			Cmd: []string{
 				"vtctld",
-				"--topo-implementation", DefaultTopoImplementation,
+				"--topo-implementation", defaultTopoImplementation,
 				"--topo-global-server-address", "etcd:2379",
 				"--topo-global-root", topoGlobalRoot,
-				"--cell", c.cell,
+				"--cell", c.cells[0],
 				"--service-map", "grpc-vtctl,grpc-vtctld",
 				"--port", strconv.Itoa(vtctldHTTPPort),
 				"--grpc-port", strconv.Itoa(vtctldGRPCPort),
@@ -61,24 +62,25 @@ func (c *Cluster) startVTCtld(ctx context.Context) (testcontainers.Container, er
 }
 
 // vtctldExec runs a vtctldclient command.
-func (c *Cluster) vtctldExec(ctx context.Context, args ...string) error {
+func (c *cluster) vtctldExec(ctx context.Context, args ...string) error {
 	cmd := append([]string{"vtctldclient", "--server", fmt.Sprintf("vtctld:%d", vtctldGRPCPort)}, args...)
 
-	exitCode, output, err := c.vtctld.Exec(ctx, cmd)
+	exitCode, outputReader, err := c.vtctld.Exec(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("exec failed: %w", err)
 	}
 
 	if exitCode != 0 {
-		return fmt.Errorf("command failed with exit code %d: %s", exitCode, output)
+		output, _ := io.ReadAll(outputReader)
+		return fmt.Errorf("command failed with exit code %d: %s", exitCode, string(output))
 	}
 
 	return nil
 }
 
-// initCell initializes the cell in the topology server.
-func (c *Cluster) initCell(ctx context.Context) error {
-	return c.vtctldExec(ctx, "AddCellInfo", "--root", "/vitess/"+c.cell, "--server-address", "etcd:2379", c.cell)
+// initCell initializes a cell in the topology server.
+func (c *cluster) initCell(ctx context.Context, cell string) error {
+	return c.vtctldExec(ctx, "AddCellInfo", "--root", "/vitess/"+cell, "--server-address", "etcd:2379", cell)
 }
 
 // waitForVTCtld returns a wait strategy for vtctld readiness.
