@@ -398,3 +398,9 @@ generate-flag-testdata:
 
 install_kubectl_kind:
 	./tools/get_kubectl_kind.sh
+
+# Builds the image at go/test/vitesst/Dockerfile, which is used for testcontainers-based
+# end-to-end tests.
+vitesst_build:
+	docker build -f go/test/vitesst/Dockerfile -t vitesst:latest .
+

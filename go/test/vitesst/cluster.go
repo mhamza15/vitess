@@ -52,20 +52,33 @@ import (
 	"vitess.io/vitess/go/mysql"
 )
 
-// Cluster represents a running Vitess cluster.
-type Cluster struct {
-	opts    *clusterOptions
-	network *testcontainers.DockerNetwork
-	cell    string
+type (
+	// Cluster represents a running Vitess cluster.
+	Cluster struct {
+		opts    *clusterOptions
+		network *testcontainers.DockerNetwork
+		cell    string
 
-	// vitessImage is the Docker image name for Vitess components.
-	vitessImage string
+		// vitessImage is the Docker image name for Vitess components.
+		vitessImage string
 
-	etcd    testcontainers.Container
-	vtctld  testcontainers.Container
-	vtgate  testcontainers.Container
-	tablets []testcontainers.Container
-}
+		etcd      testcontainers.Container
+		vtctld    testcontainers.Container
+		vtgate    testcontainers.Container
+		keyspaces map[string]*keyspaceInfo
+	}
+
+	// keyspaceInfo holds runtime information about a keyspace.
+	keyspaceInfo struct {
+		shards map[string][]*tabletInfo // shard name -> tablets
+	}
+
+	// tabletInfo holds runtime information about a tablet.
+	tabletInfo struct {
+		uid       int
+		container testcontainers.Container
+	}
+)
 
 // NewCluster creates and starts a new Vitess cluster.
 // It registers cleanup with t.Cleanup() for automatic teardown.
@@ -89,6 +102,7 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *Cluster {
 		opts:        clusterOpts,
 		cell:        clusterOpts.cell,
 		vitessImage: getVitesstImage(),
+		keyspaces:   make(map[string]*keyspaceInfo),
 	}
 
 	// Register cleanup
@@ -211,6 +225,10 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 		return startUID, fmt.Errorf("failed to generate shard ranges: %w", err)
 	}
 
+	// Initialize keyspace info
+	ksInfo := &keyspaceInfo{shards: make(map[string][]*tabletInfo)}
+	c.keyspaces[ks.name] = ksInfo
+
 	// Start tablets for each shard
 	tabletUID := startUID
 	for _, shard := range shardRanges {
@@ -219,11 +237,11 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 		for i := 0; i < ks.replicaCount; i++ {
 			t.Logf("Starting tablet for %s/%s (uid=%d)...", ks.name, shard, tabletUID)
 
-			tablet, err := c.startVTTablet(ctx, ks.name, shard, tabletUID)
+			container, err := c.startVTTablet(ctx, ks.name, shard, tabletUID)
 			if err != nil {
 				return tabletUID, fmt.Errorf("failed to start tablet for shard %s: %w", shard, err)
 			}
-			c.tablets = append(c.tablets, tablet)
+			ksInfo.shards[shard] = append(ksInfo.shards[shard], &tabletInfo{uid: tabletUID, container: container})
 
 			// Initialize shard primary on the first tablet
 			if i == 0 {
@@ -258,8 +276,8 @@ func (c *Cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 }
 
 // String returns connection information for all cluster components.
-func (c *Cluster) String(t *testing.T) string {
-	ctx := t.Context()
+func (c *Cluster) String() string {
+	ctx := context.Background()
 
 	var sb strings.Builder
 	sb.WriteString("\n" + strings.Repeat("=", 60) + "\n")
@@ -291,23 +309,29 @@ func (c *Cluster) String(t *testing.T) string {
 		fmt.Fprintf(&sb, "  CLI:    vtctldclient --server %s:%d <command>\n", host, grpcPort.Int())
 	}
 
-	// Tablets
-	if len(c.tablets) > 0 {
-		sb.WriteString("\nTablets:\n")
-		for i, tablet := range c.tablets {
-			host, _ := tablet.Host(ctx)
-			mysqlPort, _ := tablet.MappedPort(ctx, "3306/tcp")
-
-			fmt.Fprintf(&sb, "  Tablet %d:\n", i)
-			fmt.Fprintf(&sb, "    MySQL: mysql -h %s -P %d\n", host, mysqlPort.Int())
-		}
-	}
-
-	// Keyspaces
-	if len(c.opts.keyspaces) > 0 {
+	// Keyspaces with shards and tablets
+	if len(c.keyspaces) > 0 {
 		sb.WriteString("\nKeyspaces:\n")
 		for _, ks := range c.opts.keyspaces {
-			fmt.Fprintf(&sb, "  - %s\n", ks.name)
+			ksInfo := c.keyspaces[ks.name]
+			if ksInfo == nil {
+				continue
+			}
+			fmt.Fprintf(&sb, "  %s:\n", ks.name)
+
+			shardCount := ks.shardCount
+			if shardCount == 0 {
+				shardCount = DefaultShardCount
+			}
+			shards, _ := generateShardRanges(shardCount)
+			for _, shard := range shards {
+				fmt.Fprintf(&sb, "    Shard %s:\n", shard)
+				for _, tablet := range ksInfo.shards[shard] {
+					host, _ := tablet.container.Host(ctx)
+					mysqlPort, _ := tablet.container.MappedPort(ctx, "3306/tcp")
+					fmt.Fprintf(&sb, "      tablet-%d: mysql -h %s -P %d\n", tablet.uid, host, mysqlPort.Int())
+				}
+			}
 		}
 	}
 
@@ -327,9 +351,13 @@ func (c *Cluster) cleanup(t *testing.T) {
 		}
 	}
 
-	for _, tablet := range c.tablets {
-		if err := tablet.Terminate(ctx); err != nil {
-			t.Logf("Warning: failed to terminate tablet: %v", err)
+	for _, ksInfo := range c.keyspaces {
+		for _, tablets := range ksInfo.shards {
+			for _, tablet := range tablets {
+				if err := tablet.container.Terminate(ctx); err != nil {
+					t.Logf("Warning: failed to terminate tablet: %v", err)
+				}
+			}
 		}
 	}
 

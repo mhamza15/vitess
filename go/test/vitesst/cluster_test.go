@@ -17,13 +17,14 @@ limitations under the License.
 package vitesst
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewCluster(t *testing.T) {
+func TestNewClusterUnsharded(t *testing.T) {
 	t.Parallel()
 
 	cluster := NewCluster(t,
@@ -45,4 +46,36 @@ func TestNewCluster(t *testing.T) {
 	require.Len(t, result.Rows, 1)
 	assert.Equal(t, "1", result.Rows[0][0].ToString())
 	assert.Equal(t, "test", result.Rows[0][1].ToString())
+}
+
+func TestNewClusterSharded(t *testing.T) {
+	t.Parallel()
+
+	cluster := NewCluster(t,
+		WithKeyspace("test_ks").
+			WithSchema(`CREATE TABLE t1 (id BIGINT PRIMARY KEY, name VARCHAR(100))`).
+			WithVSchema(`{
+				"sharded": true,
+				"vindexes": {"hash": {"type": "hash"}},
+				"tables": {"t1": {"column_vindexes": [{"column": "id", "name": "hash"}]}}
+			}`).
+			WithShardCount(2),
+	)
+
+	conn := cluster.Connect(t)
+	defer conn.Close()
+
+	// Insert data that will be distributed across shards
+	for i := 1; i <= 10; i++ {
+		_, err := conn.ExecuteFetch(
+			fmt.Sprintf("INSERT INTO test_ks.t1 (id, name) VALUES (%d, 'test%d')", i, i),
+			1, false,
+		)
+		require.NoError(t, err)
+	}
+
+	// Select all - should return all 10 rows from both shards
+	result, err := conn.ExecuteFetch("SELECT * FROM test_ks.t1", 10, true)
+	require.NoError(t, err)
+	assert.Len(t, result.Rows, 10)
 }
