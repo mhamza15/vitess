@@ -1,0 +1,101 @@
+/*
+Copyright 2025 The Vitess Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package vitesst
+
+// clusterOptions holds all cluster configuration.
+type clusterOptions struct {
+	keyspaces    []keyspaceConfig
+	cell         string
+	mysqlVersion string
+	vtgateArgs   []string
+	vttabletArgs []string
+	vtctldArgs   []string
+	vtorcEnabled bool
+	vtorcArgs    []string
+	dockerfile   string
+}
+
+// ClusterOption configures the cluster.
+type ClusterOption interface {
+	apply(*clusterOptions)
+}
+
+type cellOption string
+
+func (c cellOption) apply(opts *clusterOptions) {
+	opts.cell = string(c)
+}
+
+// WithCell sets the cell name (default: "zone1").
+func WithCell(cell string) ClusterOption {
+	return cellOption(cell)
+}
+
+type vtgateArgsOption []string
+
+func (a vtgateArgsOption) apply(opts *clusterOptions) {
+	opts.vtgateArgs = append(opts.vtgateArgs, a...)
+}
+
+// WithVTGateArgs adds extra arguments to vtgate.
+func WithVTGateArgs(args ...string) ClusterOption {
+	return vtgateArgsOption(args)
+}
+
+type vttabletArgsOption []string
+
+func (a vttabletArgsOption) apply(opts *clusterOptions) {
+	opts.vttabletArgs = append(opts.vttabletArgs, a...)
+}
+
+// WithVTTabletArgs adds extra arguments to all vttablets.
+func WithVTTabletArgs(args ...string) ClusterOption {
+	return vttabletArgsOption(args)
+}
+
+type vtctldArgsOption []string
+
+func (a vtctldArgsOption) apply(opts *clusterOptions) {
+	opts.vtctldArgs = append(opts.vtctldArgs, a...)
+}
+
+// WithVTCtldArgs adds extra arguments to vtctld.
+func WithVTCtldArgs(args ...string) ClusterOption {
+	return vtctldArgsOption(args)
+}
+
+type vtorcOption struct {
+	args []string
+}
+
+func (v vtorcOption) apply(opts *clusterOptions) {
+	opts.vtorcEnabled = true
+	opts.vtorcArgs = append(opts.vtorcArgs, v.args...)
+}
+
+// WithVTOrc enables VTOrc for the cluster.
+func WithVTOrc(args ...string) ClusterOption {
+	return vtorcOption{args: args}
+}
+
+// defaultClusterOptions returns a clusterOptions with all defaults applied.
+func defaultClusterOptions() *clusterOptions {
+	return &clusterOptions{
+		cell:         DefaultCell,
+		mysqlVersion: DefaultMySQLVersion,
+	}
+}
