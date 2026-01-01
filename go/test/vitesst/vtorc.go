@@ -52,7 +52,7 @@ func (c *cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
 	// Append user-provided VTOrc args
 	args = append(args, c.opts.vtorcArgs...)
 
-	return testcontainers.Run(t.Context(), c.vitessImage,
+	return testcontainers.Run(t.Context(), c.vitesstImage,
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", vtorcHTTPPort)),
 		network.WithNetwork([]string{"vtorc"}, c.network),

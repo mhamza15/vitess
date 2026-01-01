@@ -13,7 +13,6 @@
 # limitations under the License.
 
 ARG GO_VERSION=1.25.3
-ARG MYSQL_VERSION=8.4.4
 
 # Build stage
 FROM golang:${GO_VERSION}-bookworm AS builder
@@ -22,7 +21,7 @@ COPY . .
 RUN NOVTADMINBUILD=1 make install PREFIX=/vt/install
 
 # Runtime stage
-FROM mysql:${MYSQL_VERSION}
+FROM mysql:8.0
 
 # Create vitess user
 RUN groupadd -r vitess && useradd -r -g vitess vitess

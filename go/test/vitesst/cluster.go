@@ -60,8 +60,8 @@ type (
 		network *testcontainers.DockerNetwork
 		cells   []string
 
-		// vitessImage is the Docker image name for Vitess components.
-		vitessImage string
+		// vitesstImage is the Docker image name for Vitess components.
+		vitesstImage string
 
 		etcd      testcontainers.Container
 		vtctld    testcontainers.Container
@@ -93,10 +93,10 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
 	config := buildConfig(t, opts)
 
 	c := &cluster{
-		opts:        config,
-		cells:       config.cells,
-		vitessImage: getVitesstImage(),
-		keyspaces:   make(map[string]*keyspaceInfo),
+		opts:         config,
+		cells:        config.cells,
+		vitesstImage: getVitesstImage(config.mysqlVersion),
+		keyspaces:    make(map[string]*keyspaceInfo),
 	}
 
 	t.Cleanup(func() { c.cleanup(t) })
@@ -374,11 +374,14 @@ func (c *cluster) cleanup(t *testing.T) {
 }
 
 // getVitesstImage returns the Vitess Docker image name.
-// It uses the VITESST_IMAGE environment variable if set, otherwise returns the default.
-func getVitesstImage() string {
+// It uses the VITESST_IMAGE environment variable if set, otherwise constructs
+// an image name based on the MySQL version (e.g., "vitesst:mysql84").
+func getVitesstImage(mysqlVersion string) string {
 	if image := os.Getenv("VITESST_IMAGE"); image != "" {
 		return image
 	}
 
-	return vitesstImage
+	// Convert version like "8.4" to tag like "mysql84"
+	tag := "mysql" + strings.ReplaceAll(mysqlVersion, ".", "")
+	return vitesstImage + ":" + tag
 }

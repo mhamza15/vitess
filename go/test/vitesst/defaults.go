@@ -21,7 +21,7 @@ const (
 	defaultCell = "zone1"
 
 	// defaultMySQLVersion is the default MySQL version.
-	defaultMySQLVersion = "8.0"
+	defaultMySQLVersion = "8.4"
 
 	// defaultShardCount is the default number of shards (unsharded).
 	defaultShardCount = 1
@@ -39,12 +39,9 @@ const (
 	// defaultTopoImplementation is the default topology server implementation.
 	defaultTopoImplementation = "etcd2"
 
-	// vitesstImage is the prebuilt image of the current source.
-	vitesstImage = "vitesst:latest"
+	// vitesstImage is the base image name for Vitess containers.
+	vitesstImage = "vitesst"
 
 	// topoGlobalRoot is the global root path in etcd.
 	topoGlobalRoot = "/vitess/global"
-
-	// networkName is the Docker network name prefix.
-	networkName = "vitesst-net"
 )

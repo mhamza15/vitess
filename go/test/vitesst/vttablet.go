@@ -109,7 +109,7 @@ exec vttablet \
   %s
 `, uid, defaultTopoImplementation, topoGlobalRoot, cell, uid, keyspace, shard, httpPort, grpcPort, strings.Join(c.opts.vttabletArgs, " "))
 
-	return testcontainers.Run(t.Context(), c.vitessImage,
+	return testcontainers.Run(t.Context(), c.vitesstImage,
 		testcontainers.WithEntrypoint("bash", "-c", startupScript),
 		testcontainers.WithExposedPorts(
 			fmt.Sprintf("%d/tcp", httpPort),

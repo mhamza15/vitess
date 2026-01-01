@@ -53,7 +53,7 @@ func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
 	}
 	args = append(args, c.opts.vtgateArgs...)
 
-	return testcontainers.Run(t.Context(), c.vitessImage,
+	return testcontainers.Run(t.Context(), c.vitesstImage,
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(
 			fmt.Sprintf("%d/tcp", vtgateHTTPPort),

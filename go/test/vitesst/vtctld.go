@@ -36,7 +36,7 @@ const (
 
 // startVTCtld starts the vtctld container.
 func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
-	return testcontainers.Run(t.Context(), c.vitessImage,
+	return testcontainers.Run(t.Context(), c.vitesstImage,
 		testcontainers.WithCmd(
 			"vtctld",
 			"--topo-implementation", defaultTopoImplementation,

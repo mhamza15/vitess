@@ -25,7 +25,7 @@ type clusterOptions struct {
 	vtctldArgs   []string
 	vtorcEnabled bool
 	vtorcArgs    []string
-	dockerfile   string
+	mysqlVersion string
 }
 
 // ClusterOption configures the cluster.
@@ -93,9 +93,23 @@ func WithVTOrc(args ...string) ClusterOption {
 	return vtorcOption{args: args}
 }
 
+type mysqlVersionOption string
+
+func (m mysqlVersionOption) apply(opts *clusterOptions) {
+	opts.mysqlVersion = string(m)
+}
+
+// WithMySQLVersion sets the MySQL version for the cluster.
+// This affects which Docker image tag is used (e.g., "vitesst:mysql84").
+// Valid values are "8.0" and "8.4". Defaults to "8.4".
+func WithMySQLVersion(version string) ClusterOption {
+	return mysqlVersionOption(version)
+}
+
 // defaultClusterOptions returns a clusterOptions with all defaults applied.
 func defaultClusterOptions() *clusterOptions {
 	return &clusterOptions{
-		cells: []string{defaultCell},
+		cells:        []string{defaultCell},
+		mysqlVersion: defaultMySQLVersion,
 	}
 }
