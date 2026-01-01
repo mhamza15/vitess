@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -89,16 +90,7 @@ type (
 func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
 	t.Helper()
 
-	// Apply options
-	config := defaultClusterOptions()
-	for _, opt := range opts {
-		opt.apply(config)
-	}
-
-	// Validate options
-	require.NotEmpty(t, config.keyspaces, "at least one keyspace is required")
-
-	ctx := t.Context()
+	config := buildConfig(t, opts)
 
 	c := &cluster{
 		opts:        config,
@@ -107,54 +99,79 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
 		keyspaces:   make(map[string]*keyspaceInfo),
 	}
 
-	// Register cleanup
-	t.Cleanup(func() {
-		c.cleanup(t)
-	})
+	t.Cleanup(func() { c.cleanup(t) })
 
 	var err error
+	c.network, err = createNetwork(t)
+	require.NoError(t, err)
 
-	// Create network
-	c.network, err = createNetwork(ctx)
-	require.NoError(t, err, "failed to create network")
+	c.etcd, err = c.startEtcd(t)
+	require.NoError(t, err)
 
-	// Start etcd
-	t.Log("Starting etcd...")
-	c.etcd, err = c.startEtcd(ctx)
-	require.NoError(t, err, "failed to start etcd")
+	c.vtctld, err = c.startVTCtld(t)
+	require.NoError(t, err)
 
-	// Start vtctld
-	t.Log("Starting vtctld...")
-	c.vtctld, err = c.startVTCtld(ctx)
-	require.NoError(t, err, "failed to start vtctld")
-
-	// Initialize cells
 	for _, cell := range c.cells {
-		err = c.initCell(ctx, cell)
-		require.NoError(t, err, "failed to initialize cell %s", cell)
+		require.NoError(t, c.initCell(t, cell))
 	}
 
-	// Set up keyspaces
+	// Create keyspaces in topology
+	c.createKeyspaces(t, config.keyspaces)
+
+	// Start tablets in each keyspace concurrently
+	var tabletsWg sync.WaitGroup
+
 	tabletUID := 100
 	for _, ks := range config.keyspaces {
-		tabletUID, err = c.setupKeyspace(t, ks, tabletUID)
-		require.NoError(t, err, "failed to setup keyspace %s", ks.name)
+		tabletUID = c.startTablets(t, &tabletsWg, ks, tabletUID)
 	}
+
+	tabletsWg.Wait()
+
+	// Start VTGate and VTOrc (if enabled) concurrently
+	var wg sync.WaitGroup
+
+	// Start VTGate
+	wg.Go(func() {
+		container, err := c.startVTGate(t)
+		require.NoError(t, err)
+		c.vtgate = container
+	})
 
 	// Start VTOrc if enabled
 	if config.vtorcEnabled {
-		t.Log("Starting VTOrc...")
-		c.vtorc, err = c.startVTOrc(ctx)
-		require.NoError(t, err, "failed to start VTOrc")
+		wg.Go(func() {
+			container, err := c.startVTOrc(t)
+			require.NoError(t, err)
+			c.vtorc = container
+		})
 	}
 
-	// Start vtgate
-	t.Log("Starting vtgate...")
-	c.vtgate, err = c.startVTGate(ctx)
-	require.NoError(t, err, "failed to start vtgate")
+	wg.Wait()
+
+	// Apply intitial schema
+	for _, ks := range config.keyspaces {
+		if ks.schema != "" {
+			err := c.vtctldExec(t, "ApplySchema", "--sql", ks.schema, ks.name)
+			require.NoError(t, err)
+		}
+	}
 
 	t.Log("Vitess cluster is ready")
 	return c
+}
+
+func buildConfig(t *testing.T, opts []ClusterOption) *clusterOptions {
+	t.Helper()
+
+	config := defaultClusterOptions()
+	for _, opt := range opts {
+		opt.apply(config)
+	}
+
+	require.NotEmpty(t, config.keyspaces, "at least one keyspace is required")
+
+	return config
 }
 
 // Connect returns a new MySQL connection to vtgate.
@@ -205,14 +222,8 @@ func (c *cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, er
 	return conn, nil
 }
 
-// setupKeyspace sets up a keyspace with tablets and schema.
-func (c *cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (int, error) {
-	t.Helper()
-	ctx := t.Context()
-
-	t.Logf("Setting up keyspace %s...", ks.name)
-
-	// Apply defaults
+// applyKeyspaceDefaults fills in default values for keyspace config.
+func (c *cluster) applyKeyspaceDefaults(ks *keyspaceConfig) {
 	if ks.shardCount == 0 {
 		ks.shardCount = defaultShardCount
 	}
@@ -224,74 +235,31 @@ func (c *cluster) setupKeyspace(t *testing.T, ks keyspaceConfig, startUID int) (
 	if ks.durabilityPolicy == "" {
 		ks.durabilityPolicy = defaultDurabilityPolicy
 	}
+}
 
-	// Create keyspace
-	if err := c.vtctldExec(ctx, "CreateKeyspace", "--durability-policy", ks.durabilityPolicy, ks.name); err != nil {
-		return startUID, fmt.Errorf("failed to create keyspace: %w", err)
-	}
+// createKeyspaces creates keyspaces in topology and initializes shard info.
+func (c *cluster) createKeyspaces(t *testing.T, keyspaces []keyspaceConfig) {
+	t.Helper()
 
-	// Generate shard ranges
-	shardRanges, err := generateShardRanges(ks.shardCount)
-	if err != nil {
-		return startUID, fmt.Errorf("failed to generate shard ranges: %w", err)
-	}
+	for i := range keyspaces {
+		ks := &keyspaces[i]
+		c.applyKeyspaceDefaults(ks)
 
-	// Initialize keyspace info
-	ksInfo := &keyspaceInfo{shards: make(map[string][]*tabletInfo)}
-	c.keyspaces[ks.name] = ksInfo
+		require.NoError(t, c.vtctldExec(t, "CreateKeyspace", "--durability-policy", ks.durabilityPolicy, ks.name))
 
-	// Start tablets for each shard, distributing across cells round-robin
-	tabletUID := startUID
-	cellIndex := 0
-	for _, shard := range shardRanges {
-		// Track the first tablet for this shard (will be the primary)
-		var primaryTablet *tabletInfo
-
-		// replicaCount includes the primary:
-		// 1 = primary only, 2 = primary + 1 replica, etc.
-		for i := 0; i < ks.replicaCount; i++ {
-			cell := c.cells[cellIndex%len(c.cells)]
-			cellIndex++
-
-			t.Logf("Starting tablet for %s/%s (uid=%d, cell=%s)...", ks.name, shard, tabletUID, cell)
-
-			container, err := c.startVTTablet(ctx, ks.name, shard, tabletUID, cell)
-			if err != nil {
-				return tabletUID, fmt.Errorf("failed to start tablet for shard %s: %w", shard, err)
-			}
-			tablet := &tabletInfo{uid: tabletUID, cell: cell, container: container}
-			ksInfo.shards[shard] = append(ksInfo.shards[shard], tablet)
-			if primaryTablet == nil {
-				primaryTablet = tablet
-			}
-			tabletUID++
+		if ks.vschema != "" {
+			require.NoError(t, c.vtctldExec(t, "ApplyVSchema", "--vschema", ks.vschema, ks.name))
 		}
 
-		// Initialize shard primary
-		t.Logf("Initializing shard primary for %s/%s...", ks.name, shard)
-		tabletAlias := fmt.Sprintf("%s-%d", primaryTablet.cell, primaryTablet.uid)
-		if err := c.vtctldExec(ctx, "InitShardPrimary", "--force", "--wait-replicas-timeout", "30s", ks.name+"/"+shard, tabletAlias); err != nil {
-			return tabletUID, fmt.Errorf("failed to initialize shard primary: %w", err)
-		}
-	}
+		shardRanges, err := generateShardRanges(ks.shardCount)
+		require.NoError(t, err)
 
-	// Apply schema
-	if ks.schema != "" {
-		t.Logf("Applying schema to keyspace %s...", ks.name)
-		if err := c.vtctldExec(ctx, "ApplySchema", "--sql", ks.schema, ks.name); err != nil {
-			return tabletUID, fmt.Errorf("failed to apply schema: %w", err)
+		ksInfo := &keyspaceInfo{shards: make(map[string][]*tabletInfo)}
+		for _, shard := range shardRanges {
+			ksInfo.shards[shard] = make([]*tabletInfo, ks.replicaCount)
 		}
+		c.keyspaces[ks.name] = ksInfo
 	}
-
-	// Apply VSchema
-	if ks.vschema != "" {
-		t.Logf("Applying VSchema to keyspace %s...", ks.name)
-		if err := c.vtctldExec(ctx, "ApplyVSchema", "--vschema", ks.vschema, ks.name); err != nil {
-			return tabletUID, fmt.Errorf("failed to apply VSchema: %w", err)
-		}
-	}
-
-	return tabletUID, nil
 }
 
 // String returns connection information for all cluster components.
@@ -374,23 +342,29 @@ func (c *cluster) cleanup(t *testing.T) {
 
 	ctx := context.Background()
 
+	var wg sync.WaitGroup
 	for _, container := range []testcontainers.Container{c.vtgate, c.vtorc, c.vtctld, c.etcd} {
 		if container != nil {
-			if err := container.Terminate(ctx); err != nil {
-				t.Logf("Warning: failed to terminate container: %v", err)
-			}
+			wg.Go(func() {
+				if err := container.Terminate(ctx); err != nil {
+					t.Logf("Warning: failed to terminate container: %v", err)
+				}
+			})
 		}
 	}
 
 	for _, ksInfo := range c.keyspaces {
 		for _, tablets := range ksInfo.shards {
 			for _, tablet := range tablets {
-				if err := tablet.container.Terminate(ctx); err != nil {
-					t.Logf("Warning: failed to terminate tablet: %v", err)
-				}
+				wg.Go(func() {
+					if err := tablet.container.Terminate(ctx); err != nil {
+						t.Logf("Warning: failed to terminate tablet: %v", err)
+					}
+				})
 			}
 		}
 	}
+	wg.Wait()
 
 	if c.network != nil {
 		if err := c.network.Remove(ctx); err != nil {

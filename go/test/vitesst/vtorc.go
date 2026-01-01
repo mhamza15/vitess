@@ -17,12 +17,14 @@ limitations under the License.
 package vitesst
 
 import (
-	"context"
 	"fmt"
 	"strconv"
+	"testing"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -32,7 +34,7 @@ const (
 )
 
 // startVTOrc starts the VTOrc container for automated failover management.
-func (c *cluster) startVTOrc(ctx context.Context) (testcontainers.Container, error) {
+func (c *cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
 	// VTOrc command with minimal configuration for test environments.
 	// VTOrc monitors tablets and handles automated failover.
 	args := []string{
@@ -50,31 +52,19 @@ func (c *cluster) startVTOrc(ctx context.Context) (testcontainers.Container, err
 	// Append user-provided VTOrc args
 	args = append(args, c.opts.vtorcArgs...)
 
-	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: c.vitessImage,
-			Cmd:   args,
-			ExposedPorts: []string{
-				fmt.Sprintf("%d/tcp", vtorcHTTPPort),
-			},
-			Networks: []string{c.network.Name},
-			NetworkAliases: map[string][]string{
-				c.network.Name: {"vtorc"},
-			},
-			WaitingFor: waitForVTOrc(),
-		},
-		Started: true,
-	})
-}
-
-// waitForVTOrc returns a wait strategy for VTOrc readiness.
-// VTOrc is ready when the HTTP health endpoint returns successfully.
-func waitForVTOrc() wait.Strategy {
-	return wait.ForHTTP("/debug/health").
-		WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtorcHTTPPort))).
-		WithStartupTimeout(defaultStartupTimeout).
-		WithPollInterval(defaultPollInterval).
-		WithStatusCodeMatcher(func(status int) bool {
-			return status == 200
-		})
+	return testcontainers.Run(t.Context(), c.vitessImage,
+		testcontainers.WithCmd(args...),
+		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", vtorcHTTPPort)),
+		network.WithNetwork([]string{"vtorc"}, c.network),
+		testcontainers.WithWaitStrategy(
+			wait.ForHTTP("/debug/health").
+				WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtorcHTTPPort))).
+				WithStartupTimeout(defaultStartupTimeout).
+				WithPollInterval(defaultPollInterval).
+				WithStatusCodeMatcher(func(status int) bool {
+					return status == 200
+				}),
+		),
+		testcontainers.WithLogger(log.TestLogger(t)),
+	)
 }

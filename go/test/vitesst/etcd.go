@@ -17,9 +17,11 @@ limitations under the License.
 package vitesst
 
 import (
-	"context"
+	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -33,30 +35,20 @@ const (
 )
 
 // startEtcd starts the etcd container using the official etcd image.
-func (c *cluster) startEtcd(ctx context.Context) (testcontainers.Container, error) {
-	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: etcdImage,
-			Cmd: []string{
-				"etcd",
-				"--listen-client-urls", "http://0.0.0.0:2379",
-				"--advertise-client-urls", "http://etcd:2379",
-			},
-			ExposedPorts: []string{"2379/tcp"},
-			Networks:     []string{c.network.Name},
-			NetworkAliases: map[string][]string{
-				c.network.Name: {"etcd"},
-			},
-			WaitingFor: waitForEtcd(),
-		},
-		Started: true,
-	})
-}
-
-// waitForEtcd returns a wait strategy for etcd readiness.
-// etcd is ready when the client port is listening.
-func waitForEtcd() wait.Strategy {
-	return wait.ForListeningPort("2379/tcp").
-		WithStartupTimeout(defaultStartupTimeout).
-		WithPollInterval(defaultPollInterval)
+func (c *cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
+	return testcontainers.Run(t.Context(), etcdImage,
+		testcontainers.WithCmd(
+			"etcd",
+			"--listen-client-urls", "http://0.0.0.0:2379",
+			"--advertise-client-urls", "http://etcd:2379",
+		),
+		testcontainers.WithExposedPorts("2379/tcp"),
+		network.WithNetwork([]string{"etcd"}, c.network),
+		testcontainers.WithWaitStrategy(
+			wait.ForListeningPort("2379/tcp").
+				WithStartupTimeout(defaultStartupTimeout).
+				WithPollInterval(defaultPollInterval),
+		),
+		testcontainers.WithLogger(log.TestLogger(t)),
+	)
 }

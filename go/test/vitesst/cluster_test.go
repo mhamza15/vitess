@@ -36,12 +36,17 @@ func TestNewClusterUnsharded(t *testing.T) {
 	conn := cluster.Connect(t)
 	defer conn.Close()
 
+	// Log tablets
+	result, err := conn.ExecuteFetch("show vitess_tablets", 100, true)
+	require.NoError(t, err)
+	t.Logf("vitess_tablets: %+v", result.Rows)
+
 	// Insert
-	_, err := conn.ExecuteFetch("INSERT INTO test_ks.t1 (id, name) VALUES (1, 'test')", 1, false)
+	_, err = conn.ExecuteFetch("INSERT INTO test_ks.t1 (id, name) VALUES (1, 'test')", 1, false)
 	require.NoError(t, err)
 
 	// Select
-	result, err := conn.ExecuteFetch("SELECT * FROM test_ks.t1 WHERE id = 1", 1, true)
+	result, err = conn.ExecuteFetch("SELECT * FROM test_ks.t1 WHERE id = 1", 1, true)
 	require.NoError(t, err)
 	require.Len(t, result.Rows, 1)
 	assert.Equal(t, "1", result.Rows[0][0].ToString())

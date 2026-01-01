@@ -17,12 +17,14 @@ limitations under the License.
 package vitesst
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strconv"
+	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -33,39 +35,38 @@ const (
 )
 
 // startVTCtld starts the vtctld container.
-func (c *cluster) startVTCtld(ctx context.Context) (testcontainers.Container, error) {
-	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: c.vitessImage,
-			Cmd: []string{
-				"vtctld",
-				"--topo-implementation", defaultTopoImplementation,
-				"--topo-global-server-address", "etcd:2379",
-				"--topo-global-root", topoGlobalRoot,
-				"--cell", c.cells[0],
-				"--service-map", "grpc-vtctl,grpc-vtctld",
-				"--port", strconv.Itoa(vtctldHTTPPort),
-				"--grpc-port", strconv.Itoa(vtctldGRPCPort),
-			},
-			ExposedPorts: []string{
-				fmt.Sprintf("%d/tcp", vtctldHTTPPort),
-				fmt.Sprintf("%d/tcp", vtctldGRPCPort),
-			},
-			Networks: []string{c.network.Name},
-			NetworkAliases: map[string][]string{
-				c.network.Name: {"vtctld"},
-			},
-			WaitingFor: waitForVTCtld(),
-		},
-		Started: true,
-	})
+func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
+	return testcontainers.Run(t.Context(), c.vitessImage,
+		testcontainers.WithCmd(
+			"vtctld",
+			"--topo-implementation", defaultTopoImplementation,
+			"--topo-global-server-address", "etcd:2379",
+			"--topo-global-root", topoGlobalRoot,
+			"--cell", c.cells[0],
+			"--service-map", "grpc-vtctl,grpc-vtctld",
+			"--port", strconv.Itoa(vtctldHTTPPort),
+			"--grpc-port", strconv.Itoa(vtctldGRPCPort),
+		),
+		testcontainers.WithExposedPorts(
+			fmt.Sprintf("%d/tcp", vtctldHTTPPort),
+			fmt.Sprintf("%d/tcp", vtctldGRPCPort),
+		),
+		network.WithNetwork([]string{"vtctld"}, c.network),
+		testcontainers.WithWaitStrategy(
+			wait.ForHTTP("/debug/vars").
+				WithPort("15000/tcp").
+				WithStartupTimeout(defaultStartupTimeout).
+				WithPollInterval(defaultPollInterval),
+		),
+		testcontainers.WithLogger(log.TestLogger(t)),
+	)
 }
 
 // vtctldExec runs a vtctldclient command.
-func (c *cluster) vtctldExec(ctx context.Context, args ...string) error {
+func (c *cluster) vtctldExec(t *testing.T, args ...string) error {
 	cmd := append([]string{"vtctldclient", "--server", fmt.Sprintf("vtctld:%d", vtctldGRPCPort)}, args...)
 
-	exitCode, outputReader, err := c.vtctld.Exec(ctx, cmd)
+	exitCode, outputReader, err := c.vtctld.Exec(t.Context(), cmd)
 	if err != nil {
 		return fmt.Errorf("exec failed: %w", err)
 	}
@@ -79,15 +80,6 @@ func (c *cluster) vtctldExec(ctx context.Context, args ...string) error {
 }
 
 // initCell initializes a cell in the topology server.
-func (c *cluster) initCell(ctx context.Context, cell string) error {
-	return c.vtctldExec(ctx, "AddCellInfo", "--root", "/vitess/"+cell, "--server-address", "etcd:2379", cell)
-}
-
-// waitForVTCtld returns a wait strategy for vtctld readiness.
-// vtctld is ready when the HTTP health endpoint returns successfully.
-func waitForVTCtld() wait.Strategy {
-	return wait.ForHTTP("/debug/vars").
-		WithPort("15000/tcp").
-		WithStartupTimeout(defaultStartupTimeout).
-		WithPollInterval(defaultPollInterval)
+func (c *cluster) initCell(t *testing.T, cell string) error {
+	return c.vtctldExec(t, "AddCellInfo", "--root", "/vitess/"+cell, "--server-address", "etcd:2379", cell)
 }

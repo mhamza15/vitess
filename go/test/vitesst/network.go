@@ -17,13 +17,13 @@ limitations under the License.
 package vitesst
 
 import (
-	"context"
+	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 )
 
 // createNetwork creates a new Docker network for the cluster.
-func createNetwork(ctx context.Context) (*testcontainers.DockerNetwork, error) {
-	return network.New(ctx, network.WithDriver("bridge"))
+func createNetwork(t *testing.T) (*testcontainers.DockerNetwork, error) {
+	return network.New(t.Context(), network.WithDriver("bridge"))
 }

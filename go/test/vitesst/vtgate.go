@@ -17,13 +17,15 @@ limitations under the License.
 package vitesst
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
+	"testing"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
+	tclog "github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
@@ -34,7 +36,7 @@ const (
 )
 
 // startVTGate starts the vtgate container.
-func (c *cluster) startVTGate(ctx context.Context) (testcontainers.Container, error) {
+func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
 	args := []string{
 		"vtgate",
 		"--topo-implementation", defaultTopoImplementation,
@@ -46,34 +48,25 @@ func (c *cluster) startVTGate(ctx context.Context) (testcontainers.Container, er
 		"--grpc-port", strconv.Itoa(vtgateGRPCPort),
 		"--mysql-server-port", strconv.Itoa(defaultVTGateMySQLPort),
 		"--mysql-auth-server-impl", "none",
-		"--tablet-types-to-wait", "PRIMARY,REPLICA",
+		"--tablet-types-to-wait", "PRIMARY",
+		"--logtostderr",
 	}
 	args = append(args, c.opts.vtgateArgs...)
 
-	return testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: c.vitessImage,
-			Cmd:   args,
-			ExposedPorts: []string{
-				fmt.Sprintf("%d/tcp", vtgateHTTPPort),
-				fmt.Sprintf("%d/tcp", vtgateGRPCPort),
-				fmt.Sprintf("%d/tcp", defaultVTGateMySQLPort),
-			},
-			Networks: []string{c.network.Name},
-			NetworkAliases: map[string][]string{
-				c.network.Name: {"vtgate"},
-			},
-			WaitingFor: waitForVTGate(),
-		},
-		Started: true,
-	})
-}
-
-// waitForVTGate returns a wait strategy for vtgate readiness.
-// vtgate is ready when the MySQL protocol port is listening.
-func waitForVTGate() wait.Strategy {
-	return wait.ForHTTP("/debug/status").
-		WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtgateHTTPPort))).
-		WithStartupTimeout(defaultStartupTimeout).
-		WithPollInterval(defaultPollInterval)
+	return testcontainers.Run(t.Context(), c.vitessImage,
+		testcontainers.WithCmd(args...),
+		testcontainers.WithExposedPorts(
+			fmt.Sprintf("%d/tcp", vtgateHTTPPort),
+			fmt.Sprintf("%d/tcp", vtgateGRPCPort),
+			fmt.Sprintf("%d/tcp", defaultVTGateMySQLPort),
+		),
+		network.WithNetwork([]string{"vtgate"}, c.network),
+		testcontainers.WithWaitStrategy(
+			wait.ForHTTP("/debug/status").
+				WithPort(nat.Port(fmt.Sprintf("%d/tcp", vtgateHTTPPort))).
+				WithStartupTimeout(defaultStartupTimeout).
+				WithPollInterval(defaultPollInterval),
+		),
+		testcontainers.WithLogger(tclog.TestLogger(t)),
+	)
 }
