@@ -23,10 +23,20 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+type vtorcLogFollowingOption struct{}
+
+func (vtorcLogFollowingOption) apply(opts *clusterOptions) {
+	opts.vtorcLogFollowing = true
+}
+
+// WithVTOrcLogger enables following vtorc container logs to test output.
+func WithVTOrcLogger() ClusterOption {
+	return vtorcLogFollowingOption{}
+}
 
 // VTOrc port constants.
 const (
@@ -52,7 +62,7 @@ func (c *cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
 	// Append user-provided VTOrc args
 	args = append(args, c.opts.vtorcArgs...)
 
-	return testcontainers.Run(t.Context(), c.vitesstImage,
+	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", vtorcHTTPPort)),
 		network.WithNetwork([]string{"vtorc"}, c.network),
@@ -65,6 +75,11 @@ func (c *cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
 					return status == 200
 				}),
 		),
-		testcontainers.WithLogger(log.TestLogger(t)),
-	)
+	}
+
+	if c.opts.vtorcLogFollowing {
+		containerOpts = append(containerOpts, testcontainers.WithLogConsumers(&testLogConsumer{prefix: "vtorc"}))
+	}
+
+	return testcontainers.Run(t.Context(), c.vitesstImage, containerOpts...)
 }

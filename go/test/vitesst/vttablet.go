@@ -25,10 +25,20 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+type vttabletLogFollowingOption struct{}
+
+func (vttabletLogFollowingOption) apply(opts *clusterOptions) {
+	opts.vttabletLogFollowing = true
+}
+
+// WithVTTabletLogger enables following vttablet container logs to test output.
+func WithVTTabletLogger() ClusterOption {
+	return vttabletLogFollowingOption{}
+}
 
 // startTablets starts all tablets for a keyspace in parallel and elects primaries.
 func (c *cluster) startTablets(t *testing.T, wg *sync.WaitGroup, ks keyspaceConfig, startUID int) int {
@@ -109,7 +119,7 @@ exec vttablet \
   %s
 `, uid, defaultTopoImplementation, topoGlobalRoot, cell, uid, keyspace, shard, httpPort, grpcPort, strings.Join(c.opts.vttabletArgs, " "))
 
-	return testcontainers.Run(t.Context(), c.vitesstImage,
+	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithEntrypoint("bash", "-c", startupScript),
 		testcontainers.WithExposedPorts(
 			fmt.Sprintf("%d/tcp", httpPort),
@@ -123,6 +133,11 @@ exec vttablet \
 				WithStartupTimeout(defaultStartupTimeout).
 				WithPollInterval(defaultPollInterval),
 		),
-		testcontainers.WithLogger(log.TestLogger(t)),
-	)
+	}
+
+	if c.opts.vttabletLogFollowing {
+		containerOpts = append(containerOpts, testcontainers.WithLogConsumers(&testLogConsumer{prefix: alias}))
+	}
+
+	return testcontainers.Run(t.Context(), c.vitesstImage, containerOpts...)
 }

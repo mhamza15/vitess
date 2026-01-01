@@ -26,6 +26,13 @@ type clusterOptions struct {
 	vtorcEnabled bool
 	vtorcArgs    []string
 	mysqlVersion string
+
+	// Log following options - when enabled, container logs are piped to test output.
+	vtgateLogFollowing   bool
+	vttabletLogFollowing bool
+	vtctldLogFollowing   bool
+	vtorcLogFollowing    bool
+	etcdLogFollowing     bool
 }
 
 // ClusterOption configures the cluster.

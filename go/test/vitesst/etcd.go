@@ -20,10 +20,20 @@ import (
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+type etcdLogFollowingOption struct{}
+
+func (etcdLogFollowingOption) apply(opts *clusterOptions) {
+	opts.etcdLogFollowing = true
+}
+
+// WithEtcdLogger enables following etcd container logs to test output.
+func WithEtcdLogger() ClusterOption {
+	return etcdLogFollowingOption{}
+}
 
 // etcd constants.
 const (
@@ -36,7 +46,7 @@ const (
 
 // startEtcd starts the etcd container using the official etcd image.
 func (c *cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
-	return testcontainers.Run(t.Context(), etcdImage,
+	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(
 			"etcd",
 			"--listen-client-urls", "http://0.0.0.0:2379",
@@ -49,6 +59,11 @@ func (c *cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
 				WithStartupTimeout(defaultStartupTimeout).
 				WithPollInterval(defaultPollInterval),
 		),
-		testcontainers.WithLogger(log.TestLogger(t)),
-	)
+	}
+
+	if c.opts.etcdLogFollowing {
+		containerOpts = append(containerOpts, testcontainers.WithLogConsumers(&testLogConsumer{prefix: "etcd"}))
+	}
+
+	return testcontainers.Run(t.Context(), etcdImage, containerOpts...)
 }

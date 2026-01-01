@@ -24,7 +24,6 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
-	tclog "github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -34,6 +33,17 @@ const (
 	vtgateHTTPPort = 15001
 	vtgateGRPCPort = 15999
 )
+
+type vtgateLogFollowingOption struct{}
+
+func (vtgateLogFollowingOption) apply(opts *clusterOptions) {
+	opts.vtgateLogFollowing = true
+}
+
+// WithVTGateLogger enables following vtgate container logs to test output.
+func WithVTGateLogger() ClusterOption {
+	return vtgateLogFollowingOption{}
+}
 
 // startVTGate starts the vtgate container.
 func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
@@ -53,7 +63,7 @@ func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
 	}
 	args = append(args, c.opts.vtgateArgs...)
 
-	return testcontainers.Run(t.Context(), c.vitesstImage,
+	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(
 			fmt.Sprintf("%d/tcp", vtgateHTTPPort),
@@ -67,6 +77,11 @@ func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
 				WithStartupTimeout(defaultStartupTimeout).
 				WithPollInterval(defaultPollInterval),
 		),
-		testcontainers.WithLogger(tclog.TestLogger(t)),
-	)
+	}
+
+	if c.opts.vtgateLogFollowing {
+		containerOpts = append(containerOpts, testcontainers.WithLogConsumers(&testLogConsumer{prefix: "vtgate"}))
+	}
+
+	return testcontainers.Run(t.Context(), c.vitesstImage, containerOpts...)
 }

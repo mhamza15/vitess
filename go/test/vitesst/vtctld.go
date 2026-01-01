@@ -23,10 +23,20 @@ import (
 	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+type vtctldLogFollowingOption struct{}
+
+func (vtctldLogFollowingOption) apply(opts *clusterOptions) {
+	opts.vtctldLogFollowing = true
+}
+
+// WithVTCtldLogger enables following vtctld container logs to test output.
+func WithVTCtldLogger() ClusterOption {
+	return vtctldLogFollowingOption{}
+}
 
 // VTCtld port constants.
 const (
@@ -36,7 +46,7 @@ const (
 
 // startVTCtld starts the vtctld container.
 func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
-	return testcontainers.Run(t.Context(), c.vitesstImage,
+	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(
 			"vtctld",
 			"--topo-implementation", defaultTopoImplementation,
@@ -58,8 +68,13 @@ func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
 				WithStartupTimeout(defaultStartupTimeout).
 				WithPollInterval(defaultPollInterval),
 		),
-		testcontainers.WithLogger(log.TestLogger(t)),
-	)
+	}
+
+	if c.opts.vtctldLogFollowing {
+		containerOpts = append(containerOpts, testcontainers.WithLogConsumers(&testLogConsumer{prefix: "vtctld"}))
+	}
+
+	return testcontainers.Run(t.Context(), c.vitesstImage, containerOpts...)
 }
 
 // vtctldExec runs a vtctldclient command.
