@@ -4,15 +4,34 @@ on:
   workflow_dispatch:
   pull_request:
 
+permissions: read-all
+
 jobs:
   compare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - uses: ./.github/actions/tune-os
+
+      - name: Setup MySQL
+        uses: ./.github/actions/setup-mysql
+        with:
+          flavor: mysql-8.4
+
+      - name: Get dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make unzip g++ etcd-client etcd-server curl git wget xz-utils
+          sudo service etcd stop
+          go mod download
+
+      - name: Build minimaltools
+        run: make minimaltools
 
       - name: Old test
         run: time go test -count=1 -run 'TestSessionMode' ./go/test/endtoend/vtgate/tabletbalancer/session_old/...
