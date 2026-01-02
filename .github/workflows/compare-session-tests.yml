@@ -33,6 +33,9 @@ jobs:
       - name: Build
         run: make build tools
 
+      - name: Build Vitesst image
+        run: make vitesst_build
+
       - name: Old test
         run: |
           source build.env
