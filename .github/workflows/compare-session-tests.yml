@@ -31,7 +31,7 @@ jobs:
           go mod download
 
       - name: Build
-        run: NOVTADMINBUILD make build tools
+        run: NOVTADMINBUILD=true make build tools
 
       - name: Build Vitesst image
         run: make vitesst_build
