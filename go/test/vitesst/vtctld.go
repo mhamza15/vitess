@@ -45,7 +45,7 @@ const (
 )
 
 // startVTCtld starts the vtctld container.
-func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
+func (c *Cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
 	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(
 			"vtctld",
@@ -78,7 +78,7 @@ func (c *cluster) startVTCtld(t *testing.T) (testcontainers.Container, error) {
 }
 
 // vtctldExec runs a vtctldclient command.
-func (c *cluster) vtctldExec(t *testing.T, args ...string) error {
+func (c *Cluster) vtctldExec(t *testing.T, args ...string) error {
 	cmd := append([]string{"vtctldclient", "--server", fmt.Sprintf("vtctld:%d", vtctldGRPCPort)}, args...)
 
 	exitCode, outputReader, err := c.vtctld.Exec(t.Context(), cmd)
@@ -95,6 +95,6 @@ func (c *cluster) vtctldExec(t *testing.T, args ...string) error {
 }
 
 // initCell initializes a cell in the topology server.
-func (c *cluster) initCell(t *testing.T, cell string) error {
+func (c *Cluster) initCell(t *testing.T, cell string) error {
 	return c.vtctldExec(t, "AddCellInfo", "--root", "/vitess/"+cell, "--server-address", "etcd:2379", cell)
 }

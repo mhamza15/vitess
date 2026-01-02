@@ -46,7 +46,7 @@ func WithVTGateLogger() ClusterOption {
 }
 
 // startVTGate starts the vtgate container.
-func (c *cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
+func (c *Cluster) startVTGate(t *testing.T) (testcontainers.Container, error) {
 	args := []string{
 		"vtgate",
 		"--topo-implementation", defaultTopoImplementation,

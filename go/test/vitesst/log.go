@@ -19,9 +19,18 @@ package vitesst
 import (
 	"fmt"
 	"strings"
+	"testing"
 
 	"github.com/testcontainers/testcontainers-go"
 )
+
+// log logs a message only when running in verbose mode (-v flag).
+func log(t *testing.T, format string, args ...any) {
+	if testing.Verbose() {
+		t.Helper()
+		t.Logf(format, args...)
+	}
+}
 
 // testLogConsumer implements testcontainers.LogConsumer and writes container
 // logs to test output with a prefix identifying the component.

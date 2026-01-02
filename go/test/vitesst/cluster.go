@@ -54,8 +54,8 @@ import (
 )
 
 type (
-	// cluster represents a running Vitess cluster.
-	cluster struct {
+	// Cluster represents a running Vitess cluster.
+	Cluster struct {
 		opts    *clusterOptions
 		network *testcontainers.DockerNetwork
 		cells   []string
@@ -72,14 +72,7 @@ type (
 
 	// keyspaceInfo holds runtime information about a keyspace.
 	keyspaceInfo struct {
-		shards map[string][]*tabletInfo // shard name -> tablets
-	}
-
-	// tabletInfo holds runtime information about a tablet.
-	tabletInfo struct {
-		uid       int
-		cell      string
-		container testcontainers.Container
+		shards map[string][]TabletInfo // shard name -> tablets
 	}
 )
 
@@ -87,12 +80,12 @@ type (
 // It registers cleanup with t.Cleanup() for automatic teardown.
 // Requires at least one keyspace to be configured.
 // The cluster uses the prebuilt "vitesst:latest" Docker image.
-func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
+func NewCluster(t *testing.T, opts ...ClusterOption) *Cluster {
 	t.Helper()
 
 	config := buildConfig(t, opts)
 
-	c := &cluster{
+	c := &Cluster{
 		opts:         config,
 		cells:        config.cells,
 		vitesstImage: getVitesstImage(config.mysqlVersion),
@@ -157,7 +150,7 @@ func NewCluster(t *testing.T, opts ...ClusterOption) *cluster {
 		}
 	}
 
-	t.Log("Vitess cluster is ready")
+	log(t, "Vitess cluster is ready")
 	return c
 }
 
@@ -178,7 +171,7 @@ func buildConfig(t *testing.T, opts []ClusterOption) *clusterOptions {
 //
 //	conn := cluster.Connect(t)
 //	defer conn.Close()
-func (c *cluster) Connect(t *testing.T) *mysql.Conn {
+func (c *Cluster) Connect(t *testing.T) *mysql.Conn {
 	t.Helper()
 
 	conn, err := c.connect(t.Context(), "")
@@ -191,7 +184,7 @@ func (c *cluster) Connect(t *testing.T) *mysql.Conn {
 //
 //	conn := cluster.ConnectKeyspace(t, "ks")
 //	defer conn.Close()
-func (c *cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
+func (c *Cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
 	t.Helper()
 
 	conn, err := c.connect(t.Context(), keyspace)
@@ -200,8 +193,33 @@ func (c *cluster) ConnectKeyspace(t *testing.T, keyspace string) *mysql.Conn {
 	return conn
 }
 
+// Tablets returns all tablets in the cluster.
+func (c *Cluster) Tablets() []TabletInfo {
+	var tablets []TabletInfo
+	for _, ksInfo := range c.keyspaces {
+		for _, shardTablets := range ksInfo.shards {
+			tablets = append(tablets, shardTablets...)
+		}
+	}
+	return tablets
+}
+
+// TabletsKeyspace returns all tablets for a given keyspace.
+func (c *Cluster) TabletsKeyspace(keyspace string) []TabletInfo {
+	ksInfo, ok := c.keyspaces[keyspace]
+	if !ok {
+		return nil
+	}
+
+	var tablets []TabletInfo
+	for _, shardTablets := range ksInfo.shards {
+		tablets = append(tablets, shardTablets...)
+	}
+	return tablets
+}
+
 // connect creates a MySQL connection to vtgate.
-func (c *cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, error) {
+func (c *Cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, error) {
 	host, err := c.vtgate.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vtgate host: %w", err)
@@ -223,7 +241,7 @@ func (c *cluster) connect(ctx context.Context, keyspace string) (*mysql.Conn, er
 }
 
 // applyKeyspaceDefaults fills in default values for keyspace config.
-func (c *cluster) applyKeyspaceDefaults(ks *keyspaceConfig) {
+func (c *Cluster) applyKeyspaceDefaults(ks *keyspaceConfig) {
 	if ks.shardCount == 0 {
 		ks.shardCount = defaultShardCount
 	}
@@ -238,7 +256,7 @@ func (c *cluster) applyKeyspaceDefaults(ks *keyspaceConfig) {
 }
 
 // createKeyspaces creates keyspaces in topology and initializes shard info.
-func (c *cluster) createKeyspaces(t *testing.T, keyspaces []keyspaceConfig) {
+func (c *Cluster) createKeyspaces(t *testing.T, keyspaces []keyspaceConfig) {
 	t.Helper()
 
 	for i := range keyspaces {
@@ -254,16 +272,16 @@ func (c *cluster) createKeyspaces(t *testing.T, keyspaces []keyspaceConfig) {
 		shardRanges, err := generateShardRanges(ks.shardCount)
 		require.NoError(t, err)
 
-		ksInfo := &keyspaceInfo{shards: make(map[string][]*tabletInfo)}
+		ksInfo := &keyspaceInfo{shards: make(map[string][]TabletInfo)}
 		for _, shard := range shardRanges {
-			ksInfo.shards[shard] = make([]*tabletInfo, ks.replicaCount)
+			ksInfo.shards[shard] = make([]TabletInfo, ks.replicaCount)
 		}
 		c.keyspaces[ks.name] = ksInfo
 	}
 }
 
 // String returns connection information for all cluster components.
-func (c *cluster) String() string {
+func (c *Cluster) String() string {
 	ctx := context.Background()
 
 	var sb strings.Builder
@@ -326,7 +344,7 @@ func (c *cluster) String() string {
 				for _, tablet := range ksInfo.shards[shard] {
 					host, _ := tablet.container.Host(ctx)
 					mysqlPort, _ := tablet.container.MappedPort(ctx, "3306/tcp")
-					fmt.Fprintf(&sb, "      tablet-%d: mysql -h %s -P %d\n", tablet.uid, host, mysqlPort.Int())
+					fmt.Fprintf(&sb, "      tablet-%d: mysql -h %s -P %d\n", tablet.UID, host, mysqlPort.Int())
 				}
 			}
 		}
@@ -337,7 +355,7 @@ func (c *cluster) String() string {
 }
 
 // cleanup terminates all containers and the network.
-func (c *cluster) cleanup(t *testing.T) {
+func (c *Cluster) cleanup(t *testing.T) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -346,7 +364,7 @@ func (c *cluster) cleanup(t *testing.T) {
 	for _, container := range []testcontainers.Container{c.vtgate, c.vtorc, c.vtctld, c.etcd} {
 		if container != nil {
 			wg.Go(func() {
-				if err := container.Terminate(ctx); err != nil {
+				if err := container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 					t.Logf("Warning: failed to terminate container: %v", err)
 				}
 			})
@@ -357,7 +375,7 @@ func (c *cluster) cleanup(t *testing.T) {
 		for _, tablets := range ksInfo.shards {
 			for _, tablet := range tablets {
 				wg.Go(func() {
-					if err := tablet.container.Terminate(ctx); err != nil {
+					if err := tablet.container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 						t.Logf("Warning: failed to terminate tablet: %v", err)
 					}
 				})

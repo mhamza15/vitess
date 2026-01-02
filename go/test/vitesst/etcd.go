@@ -45,7 +45,7 @@ const (
 )
 
 // startEtcd starts the etcd container using the official etcd image.
-func (c *cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
+func (c *Cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
 	containerOpts := []testcontainers.ContainerCustomizer{
 		testcontainers.WithCmd(
 			"etcd",

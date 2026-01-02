@@ -73,8 +73,7 @@ func (kb *keyspaceBuilder) WithShardCount(n int) *keyspaceBuilder {
 	return kb
 }
 
-// WithReplicaCount sets the number of tablets per shard. This count
-// includes the primary.
+// WithReplicaCount sets the number of tablets per shard.
 func (kb *keyspaceBuilder) WithReplicaCount(n int) *keyspaceBuilder {
 	kb.config.replicaCount = n
 	return kb

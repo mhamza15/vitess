@@ -31,6 +31,16 @@ COPY --link --from=builder --chown=vitess:vitess /vt/install /vt
 COPY --link --from=builder /vt/src/vitess.io/vitess/config/init_db.sql /vt/config/
 COPY --link --from=builder /vt/src/vitess.io/vitess/config/mycnf /vt/config/
 
+# Add vt_dba user accessible from outside the container
+RUN cat <<'EOF' > /tmp/custom.sql && \
+    sed -i '/# {{custom_sql}}/r /tmp/custom.sql' /vt/config/init_db.sql && \
+    rm /tmp/custom.sql
+CREATE USER 'vt_dba'@'%';
+GRANT ALL ON *.* TO 'vt_dba'@'%';
+GRANT GRANT OPTION ON *.* TO 'vt_dba'@'%';
+GRANT PROXY ON ''@'' TO 'vt_dba'@'%' WITH GRANT OPTION;
+EOF
+
 # Environment for Vitess binaries
 ENV VTROOT=/vt
 ENV VTDATAROOT=/vt/vtdataroot

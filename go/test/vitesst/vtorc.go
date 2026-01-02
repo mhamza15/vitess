@@ -44,7 +44,7 @@ const (
 )
 
 // startVTOrc starts the VTOrc container for automated failover management.
-func (c *cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
+func (c *Cluster) startVTOrc(t *testing.T) (testcontainers.Container, error) {
 	// VTOrc command with minimal configuration for test environments.
 	// VTOrc monitors tablets and handles automated failover.
 	args := []string{
