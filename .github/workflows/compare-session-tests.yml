@@ -30,8 +30,8 @@ jobs:
           sudo service etcd stop
           go mod download
 
-      - name: Build minimaltools
-        run: make minimaltools
+      - name: Build
+        run: make build tools
 
       - name: Old test
         run: time go test -count=1 -run 'TestSessionMode' ./go/test/endtoend/vtgate/tabletbalancer/session_old/...
