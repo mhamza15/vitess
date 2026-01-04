@@ -185,7 +185,6 @@ func (c *Cluster) startVTTablet(t *testing.T, keyspace, shard string, uid int, c
 
 	startupScript := fmt.Sprintf(`#!/bin/bash
 set -ex
-export EXTRA_MY_CNF=/vt/config/vitesst.cnf
 mysqlctl --tablet-uid %d --mysql-port 3306 --init-db-sql-file /vt/config/init_db.sql init
 
 exec vttablet \
@@ -211,6 +210,7 @@ exec vttablet \
 			"3306/tcp",
 		),
 		network.WithNetwork([]string{alias}, c.network),
+		testcontainers.WithTmpfs(map[string]string{"/vt/vtdataroot": "uid=999,gid=999"}),
 		testcontainers.WithWaitStrategy(
 			wait.ForHTTP("/debug/status").
 				WithPort(nat.Port(fmt.Sprintf("%d/tcp", httpPort))).

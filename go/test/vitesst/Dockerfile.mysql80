@@ -26,7 +26,6 @@ RUN groupadd -r vitess && useradd -r -g vitess vitess
 COPY --chown=vitess:vitess .vitesst_install/bin /vt/bin
 COPY --chown=vitess:vitess config/init_db.sql /vt/config/
 COPY --chown=vitess:vitess config/mycnf /vt/config/
-COPY --chown=vitess:vitess go/test/vitesst/vitesst.cnf /vt/config/
 
 # Add vt_dba user accessible from outside the container
 RUN cat <<'EOF' > /tmp/custom.sql && \
