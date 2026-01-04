@@ -56,25 +56,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Vitesst mysql80 image
-        uses: docker/build-push-action@v6
+      - name: Build Vitesst images
+        uses: docker/bake-action@v6
         with:
-          context: .
-          file: go/test/vitesst/Dockerfile.mysql80
-          tags: vitesst:mysql80
+          source: .
+          files: go/test/vitesst/docker-bake.hcl
           load: true
-          cache-from: type=gha,scope=vitesst-mysql80
-          cache-to: type=gha,mode=max,scope=vitesst-mysql80
-
-      - name: Build Vitesst mysql84 image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: go/test/vitesst/Dockerfile.mysql84
-          tags: vitesst:mysql84
-          load: true
-          cache-from: type=gha,scope=vitesst-mysql84
-          cache-to: type=gha,mode=max,scope=vitesst-mysql84
 
       - name: New test
         run: |
