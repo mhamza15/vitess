@@ -39,9 +39,9 @@ RUN /vt/dist/install_mysql.sh mysql80
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 
 # Copy Vitess binaries and config
-COPY --link --chown=vitess:vitess --from=builder /vt/install /vt
-COPY --link --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/init_db.sql /vt/config/
-COPY --link --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/mycnf /vt/config/
+COPY --chown=vitess:vitess --from=builder /vt/install /vt
+COPY --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/init_db.sql /vt/config/
+COPY --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/mycnf /vt/config/
 
 # Add vt_dba user accessible from outside the container
 RUN cat <<'EOF' > /tmp/custom.sql && \
