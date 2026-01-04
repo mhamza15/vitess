@@ -25,5 +25,5 @@ const (
 	defaultStartupTimeout = 2 * time.Minute
 
 	// defaultPollInterval is the default interval for polling container readiness.
-	defaultPollInterval = 1 * time.Second
+	defaultPollInterval = 100 * time.Millisecond
 )

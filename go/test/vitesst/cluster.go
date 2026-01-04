@@ -374,6 +374,9 @@ func (c *Cluster) cleanup(t *testing.T) {
 	for _, ksInfo := range c.keyspaces {
 		for _, tablets := range ksInfo.shards {
 			for _, tablet := range tablets {
+				if tablet.container == nil {
+					continue
+				}
 				wg.Go(func() {
 					if err := tablet.container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 						t.Logf("Warning: failed to terminate tablet: %v", err)

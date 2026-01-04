@@ -54,6 +54,7 @@ func (c *Cluster) startEtcd(t *testing.T) (testcontainers.Container, error) {
 		),
 		testcontainers.WithExposedPorts("2379/tcp"),
 		network.WithNetwork([]string{"etcd"}, c.network),
+		testcontainers.WithTmpfs(map[string]string{"/var/lib/etcd": ""}),
 		testcontainers.WithWaitStrategy(
 			wait.ForListeningPort("2379/tcp").
 				WithStartupTimeout(defaultStartupTimeout).

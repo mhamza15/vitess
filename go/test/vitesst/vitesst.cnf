@@ -1,0 +1,32 @@
+# Vitesst-specific MySQL configuration for fast test initialization.
+# These settings prioritize speed over durability since test data is ephemeral.
+
+# Smaller buffer pool = faster initialization
+innodb_buffer_pool_size = 32M
+
+# Disable fsync for speed (data is in tmpfs anyway)
+innodb_flush_log_at_trx_commit = 0
+sync_binlog = 0
+
+# Smaller redo logs = faster initialization
+# Use innodb_redo_log_capacity for MySQL 8.0.30+ (replaces innodb_log_file_size)
+innodb_redo_log_capacity = 10M
+innodb_log_buffer_size = 1M
+
+# Skip doublewrite buffer (not needed for tests)
+innodb_doublewrite = 0
+
+# Disable native AIO to avoid aio-max-nr limits in containers
+innodb_use_native_aio = 0
+
+# Smaller key buffer
+key_buffer_size = 2M
+
+# Disable performance schema for faster startup
+performance_schema = OFF
+
+# Faster replication failure detection
+replica_net_timeout = 4
+
+# Disable super-read-only for test flexibility
+super-read-only = false

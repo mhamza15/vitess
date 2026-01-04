@@ -401,8 +401,5 @@ install_kubectl_kind:
 
 # Builds vitesst images used for testcontainers-based end-to-end tests.
 vitesst_build:
-	$(MAKE) install PREFIX=$(VTROOT)/.vitesst_install
-	docker build -f go/test/vitesst/Dockerfile.mysql80 \
-		-t vitesst:mysql80 .
-	docker build -f go/test/vitesst/Dockerfile.mysql84 \
-		-t vitesst:mysql84 .
+	$(MAKE) cross-install GOOS=linux GOARCH=amd64 PREFIX=$(VTROOT)/.vitesst_install
+	docker buildx bake -f go/test/vitesst/docker-bake.hcl
