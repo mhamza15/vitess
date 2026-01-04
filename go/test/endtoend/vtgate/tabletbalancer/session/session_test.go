@@ -46,6 +46,8 @@ const (
 
 // TestSessionModeBalancer tests the "session" mode routes each session consistently to the same tablet.
 func TestSessionModeBalancer(t *testing.T) {
+	t.Parallel()
+
 	cluster, _ := setupCluster(t)
 
 	// Create 2 session connections that route to different tablets
@@ -59,6 +61,8 @@ func TestSessionModeBalancer(t *testing.T) {
 
 // TestSessionModeRemoveTablet tests that when a tablet is killed, connections switch to remaining tablets
 func TestSessionModeRemoveTablet(t *testing.T) {
+	t.Parallel()
+
 	cluster, aliases := setupCluster(t)
 
 	// Create 2 connections to different tablets
