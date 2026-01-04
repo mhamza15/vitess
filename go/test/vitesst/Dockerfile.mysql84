@@ -12,21 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GO_VERSION=1.25.3
-
-# Build stage
-FROM golang:${GO_VERSION}-alpine AS builder
-
-# Install build dependencies
-RUN apk add --no-cache make git bash
-
-WORKDIR /vt/src/vitess.io/vitess
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN NOVTADMINBUILD=1 make install PREFIX=/vt/install
-
-# Runtime stage
+# Runtime-only image - expects pre-built Vitess binaries in ./bin
 FROM debian:bookworm-slim
 
 # Install MySQL dependencies
@@ -36,10 +22,10 @@ RUN /vt/dist/install_mysql.sh mysql84
 # Create vitess user
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 
-# Copy Vitess binaries and config
-COPY --chown=vitess:vitess --from=builder /vt/install /vt
-COPY --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/init_db.sql /vt/config/
-COPY --chown=vitess:vitess --from=builder /vt/src/vitess.io/vitess/config/mycnf /vt/config/
+# Copy pre-built Vitess binaries and config from build context
+COPY --chown=vitess:vitess .vitesst_install/bin /vt/bin
+COPY --chown=vitess:vitess config/init_db.sql /vt/config/
+COPY --chown=vitess:vitess config/mycnf /vt/config/
 
 # Add vt_dba user accessible from outside the container
 RUN cat <<'EOF' > /tmp/custom.sql && \

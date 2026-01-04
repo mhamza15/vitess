@@ -49,6 +49,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Build Vitess binaries
+        run: |
+          NOVTADMINBUILD=1 make install PREFIX=.vitesst_install
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
