@@ -29,7 +29,8 @@ FROM mysql:8.4
 RUN groupadd -r vitess && useradd -r -g vitess vitess
 
 # Copy Vitess binaries and config
-COPY --link --from=builder --chown=vitess:vitess /vt/install /vt
+COPY --link --from=builder /vt/install /vt
+RUN chown -R vitess:vitess /vt
 COPY --link --from=builder /vt/src/vitess.io/vitess/config/init_db.sql /vt/config/
 COPY --link --from=builder /vt/src/vitess.io/vitess/config/mycnf /vt/config/
 
