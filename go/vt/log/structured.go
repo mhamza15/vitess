@@ -16,7 +16,52 @@ limitations under the License.
 
 package log
 
-import "time"
+import (
+	"time"
+
+	"github.com/golang/glog"
+)
+
+// defaultLogger is the global logger instance used by package-level functions. It is initialized to use the glog
+// backend by default, and can be switched to zerolog via the --structured-logging flag (implemented in Phase 8).
+var defaultLogger Logger = newGlogLogger()
+
+// InfoS returns an Event for logging at info level. The "S" suffix distinguishes this from the legacy Info variable
+// during the migration period. After migration is complete, this will be renamed to Info.
+func InfoS() *Event {
+	return defaultLogger.Info()
+}
+
+// WarnS returns an Event for logging at warning level.
+func WarnS() *Event {
+	return defaultLogger.Warn()
+}
+
+// ErrorS returns an Event for logging at error level.
+func ErrorS() *Event {
+	return defaultLogger.Error()
+}
+
+// FatalS returns an Event for logging at fatal level. After the message is logged, the program terminates.
+func FatalS() *Event {
+	return defaultLogger.Fatal()
+}
+
+// ExitS returns an Event for logging at exit level. After the message is logged, the program terminates.
+func ExitS() *Event {
+	return defaultLogger.Exit()
+}
+
+// VS returns a verbose logger that respects glog's --v flag. The returned logger only emits logs if the configured
+// verbosity level is at least the specified level.
+func VS(level Level) Logger {
+	return defaultLogger.V(level)
+}
+
+// FlushS ensures any pending log I/O is written. This calls glog.Flush() for the glog backend.
+func FlushS() {
+	glog.Flush()
+}
 
 // Logger provides structured logging that works with both glog and zerolog backends. When zerolog is enabled via the
 // --structured-logging flag, log output is JSON formatted for log aggregation systems. When glog is active (the

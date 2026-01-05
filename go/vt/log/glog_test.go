@@ -33,8 +33,8 @@ func TestGlogOutput(t *testing.T) {
 	require.NoError(t, flag.Set("logtostderr", "false"))
 	require.NoError(t, flag.Set("alsologtostderr", "false"))
 
-	logger := newGlogLogger()
-	logger.Info().Str("tablet_id", "zone1-001").Int("shard", 42).Msg("processing tablet")
+	// Test package-level function using defaultLogger.
+	InfoS().Str("tablet_id", "zone1-001").Int("shard", 42).Msg("processing tablet")
 	glog.Flush()
 
 	matches, err := filepath.Glob(filepath.Join(logDir, "*.INFO.*"))
