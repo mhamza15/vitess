@@ -231,32 +231,3 @@ func (e *Event) MsgfDepth(depth int, format string, args ...any) {
 		e.gl.MsgfDepth(depth, format, args...)
 	}
 }
-
-// glogContext is a placeholder for the glog context implementation. This will be fully implemented in Phase 2.
-type glogContext struct{}
-
-func (c *glogContext) Str(key, val string)               {}
-func (c *glogContext) Int(key string, val int)           {}
-func (c *glogContext) Int64(key string, val int64)       {}
-func (c *glogContext) Uint64(key string, val uint64)     {}
-func (c *glogContext) Bool(key string, val bool)         {}
-func (c *glogContext) Err(err error)                     {}
-func (c *glogContext) Dur(key string, val time.Duration) {}
-func (c *glogContext) Any(key string, val any)           {}
-func (c *glogContext) Logger() Logger                    { return nil }
-
-// glogEvent is a placeholder for the glog event implementation. This will be fully implemented in Phase 2.
-type glogEvent struct{}
-
-func (e *glogEvent) Str(key, val string)                             {}
-func (e *glogEvent) Int(key string, val int)                         {}
-func (e *glogEvent) Int64(key string, val int64)                     {}
-func (e *glogEvent) Uint64(key string, val uint64)                   {}
-func (e *glogEvent) Bool(key string, val bool)                       {}
-func (e *glogEvent) Err(err error)                                   {}
-func (e *glogEvent) Dur(key string, val time.Duration)               {}
-func (e *glogEvent) Any(key string, val any)                         {}
-func (e *glogEvent) Msg(msg string)                                  {}
-func (e *glogEvent) Msgf(format string, args ...any)                 {}
-func (e *glogEvent) MsgDepth(depth int, msg string)                  {}
-func (e *glogEvent) MsgfDepth(depth int, format string, args ...any) {}
