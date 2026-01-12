@@ -94,7 +94,17 @@ jobs:
             echo '{}' > empty-timing.json
             TIMING_FILES="empty-timing.json"
           fi
-          go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS > matrix.json
+          
+          # Get list of packages to test, filtering out excludes
+          PACKAGES=$(go list ./go/test/endtoend/...)
+          EXCLUDES=$(yq -r '.excludes // [] | .[]' test/config.yaml 2>/dev/null | paste -sd '|' -)
+          if [ -n "$EXCLUDES" ]; then
+            echo "Excluding packages: $EXCLUDES"
+            PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDES")
+          fi
+          
+          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS > matrix.json
+          
           # Convert 0-indexed id to 1-indexed shard number
           jq '.include |= map(.shard = .id + 1)' matrix.json | tee matrix-final.json
           echo "matrix=$(jq -c . matrix-final.json)" >> $GITHUB_OUTPUT
@@ -125,7 +135,7 @@ jobs:
         run: |
           deps=""
           for pkg in ${{ matrix.packages }}; do
-            pkg_deps=$(yq -r ".\"$pkg\" // [] | .[]" test/deps.yaml 2>/dev/null)
+            pkg_deps=$(yq -r ".deps.\"$pkg\" // [] | .[]" test/config.yaml 2>/dev/null)
             deps="$deps $pkg_deps"
           done
           deps=$(echo $deps | tr ' ' '\n' | sort -u | xargs)
@@ -140,7 +150,7 @@ jobs:
           echo ""
           echo "## Dependencies by package"
           for pkg in ${{ matrix.packages }}; do
-            pkg_deps=$(yq -r ".\"$pkg\" // [] | .[]" test/deps.yaml 2>/dev/null)
+            pkg_deps=$(yq -r ".deps.\"$pkg\" // [] | .[]" test/config.yaml 2>/dev/null)
             if [ -n "$pkg_deps" ]; then
               echo "  $pkg:"
               for dep in $pkg_deps; do
@@ -195,6 +205,7 @@ jobs:
         run: chmod +x bin/*
 
       - name: Run tests
+        id: tests
         run: |
           source build.env
           go tool gotestsum \
@@ -218,7 +229,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Test Report
-        if: ${{ !cancelled() }}
+        if: steps.tests.outcome == 'failure'
         uses: dorny/test-reporter@v2
         with:
           name: Test Results (Shard ${{ matrix.shard }})

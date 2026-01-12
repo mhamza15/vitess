@@ -1,0 +1,30 @@
+# Test configuration for cluster e2e tests.
+
+# Packages to exclude from CI. These tests are designed for special contexts
+# (e.g., upgrade/downgrade testing) and should not run as standalone tests.
+excludes:
+  - vitess.io/vitess/go/test/endtoend/versionupgrade
+
+# Package dependencies. Only packages with special requirements need to be
+# listed. Packages not listed use the default setup (MySQL 8.4, etcd).
+deps:
+  vitess.io/vitess/go/test/endtoend/backup/xtrabackup:
+    - xtrabackup
+
+  vitess.io/vitess/go/test/endtoend/backup/xtrabackupstream:
+    - xtrabackup
+
+  vitess.io/vitess/go/test/endtoend/backup/pitr_xtrabackup:
+    - xtrabackup
+
+  vitess.io/vitess/go/test/endtoend/recovery/xtrabackup:
+    - xtrabackup
+
+  vitess.io/vitess/go/test/endtoend/topotest/consul:
+    - consul
+
+  vitess.io/vitess/go/test/endtoend/topotest/zk2:
+    - zookeeper
+
+  vitess.io/vitess/go/test/endtoend/backup/s3:
+    - minio
