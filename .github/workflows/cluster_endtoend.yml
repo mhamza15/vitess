@@ -14,7 +14,7 @@ concurrency:
 permissions: read-all
 
 env:
-  PARTITIONS: 16
+  PARTITIONS: 32
 
 jobs:
   changes:
@@ -175,7 +175,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --rerun-fails-run-root-test \
             --packages "${{ matrix.packages }}" \
-            -- -v -timeout 45m
+            -- -timeout 45m -logtostderr
 
       - name: Slowest tests
         if: always()
