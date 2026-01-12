@@ -222,10 +222,13 @@ jobs:
       - name: Slowest tests
         if: ${{ !cancelled() }}
         run: |
-          echo "## Slowest Tests" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool gotestsum tool slowest --jsonfile report.json --threshold 30s | tee -a $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          slowest=$(go tool gotestsum tool slowest --jsonfile report.json --threshold 1m)
+          if [ -n "$slowest" ]; then
+            echo "## Slowest Tests" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$slowest" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Test Report
         if: steps.tests.outcome == 'failure'
