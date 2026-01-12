@@ -168,7 +168,8 @@ jobs:
             --junitfile report.xml \
             --rerun-fails=3 \
             --rerun-fails-max-failures=10 \
-            -- -v -timeout 45m ${{ matrix.packages }}
+            --packages "${{ matrix.packages }}" \
+            -- -v -timeout 45m
 
       - name: Test Summary
         if: always()
