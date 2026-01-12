@@ -170,15 +170,25 @@ jobs:
             --format-hide-empty-pkg \
             --hide-summary=skipped \
             --junitfile report.xml \
+            --jsonfile report.json \
             --rerun-fails=3 \
             --rerun-fails-max-failures=10 \
             --rerun-fails-run-root-test \
             --packages "${{ matrix.packages }}" \
             -- -v -timeout 45m
 
-      - name: Test Summary
+      - name: Slowest tests
         if: always()
-        uses: test-summary/action@v2
+        run: |
+          echo "## Slowest Tests" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool gotestsum tool slowest --jsonfile report.json --threshold 30s | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Test Report
+        if: always()
+        uses: dorny/test-reporter@v2
         with:
-          paths: report.xml
-          show: fail
+          name: Test Results (Shard ${{ matrix.shard }})
+          path: report.json
+          reporter: golang-json
