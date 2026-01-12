@@ -80,7 +80,7 @@ jobs:
           echo '{}' > empty-timing.json
           go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files empty-timing.json --partitions $PARTITIONS > matrix.json
           # Convert 0-indexed id to 1-indexed shard number
-          jq '.include |= map(.shard = .id + 1)' matrix.json > matrix-final.json
+          jq '.include |= map(.shard = .id + 1)' matrix.json | tee matrix-final.json
           echo "matrix=$(jq -c . matrix-final.json)" >> $GITHUB_OUTPUT
 
   test:
@@ -136,7 +136,6 @@ jobs:
           echo "## Dependencies to install: ${{ steps.deps.outputs.deps }}"
 
       - name: Setup MySQL
-        if: ${{ !contains(steps.deps.outputs.deps, 'xtrabackup') }}
         uses: ./.github/actions/setup-mysql
         with:
           flavor: mysql-8.4
@@ -148,12 +147,9 @@ jobs:
           sudo apt-get -qq install -y lsb-release gnupg2
           wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
           sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
-          sudo percona-release setup ps80
+          sudo percona-release setup pxb-84
           sudo apt-get -qq update
-          sudo apt-get -qq install -y percona-server-server percona-server-client percona-xtrabackup-80 lz4
-          sudo service mysql stop
-          sudo ln -s /etc/apparmor.d/usr.sbin.mysqld /etc/apparmor.d/disable/
-          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
+          sudo apt-get -qq install -y percona-xtrabackup-84 lz4
 
       - name: Install Consul/Zookeeper
         if: contains(steps.deps.outputs.deps, 'consul') || contains(steps.deps.outputs.deps, 'zookeeper')
@@ -195,7 +191,7 @@ jobs:
             --rerun-fails-max-failures=10 \
             --rerun-fails-run-root-test \
             --packages "${{ matrix.packages }}" \
-            -- -timeout 45m -logtostderr
+            -- -timeout 45m -args -logtostderr
 
       - name: Slowest tests
         if: always()
