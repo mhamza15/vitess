@@ -1,3 +1,28 @@
+# Cluster E2E CI Simplification Spec
+
+## Overview
+
+Replace 61 generated workflow files with a single unified workflow using gotestsum ci-matrix for automatic test partitioning.
+
+## Files
+
+### `test/deps.yaml`
+
+Maps packages to their special dependencies. Packages not listed use default setup (MySQL 8.4, etcd).
+
+```yaml
+vitess.io/vitess/go/test/endtoend/backup/xtrabackup:
+  - xtrabackup
+
+vitess.io/vitess/go/test/endtoend/backup/xtrabackupstream:
+  - xtrabackup
+
+# ... etc
+```
+
+### `.github/workflows/cluster_endtoend.yml`
+
+```yaml
 name: Cluster E2E Tests
 
 on:
@@ -12,9 +37,6 @@ concurrency:
   cancel-in-progress: true
 
 permissions: read-all
-
-env:
-  PARTITIONS: 16
 
 jobs:
   changes:
@@ -56,8 +78,7 @@ jobs:
       - name: Generate test matrix
         id: generate
         run: |
-          echo '{}' > empty-timing.json
-          go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files empty-timing.json --partitions $PARTITIONS > matrix.json
+          go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --partitions 16 > matrix.json
           echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
 
   test:
@@ -148,3 +169,75 @@ jobs:
         with:
           paths: report.xml
           show: fail
+```
+
+## Dependency Types
+
+| Dep | What it installs | Replaces default MySQL? |
+|-----|------------------|------------------------|
+| `xtrabackup` | Percona Server + XtraBackup | Yes |
+| `consul` | Consul via `make tools` | No |
+| `zookeeper` | Zookeeper via `make tools` | No |
+| `minio` | Minio S3 server | No |
+
+## TODO / Deferred Items
+
+### Launchable Integration
+The old system has Launchable test analytics integration. To be implemented later:
+```yaml
+- name: Setup launchable dependencies
+  if: github.event_name == 'pull_request' && github.event.pull_request.draft == 'false' && github.base_ref == 'main'
+  run: |
+    pip3 install --user launchable~=1.0 > /dev/null
+    launchable verify || true
+    launchable record build --name "$GITHUB_RUN_ID" --no-commit-collection --source .
+
+- name: Record test results in launchable
+  if: # after tests, on PRs to main
+  run: launchable record tests --build "$GITHUB_RUN_ID" go-test . || true
+```
+
+### Build Tags
+`vtgate_transaction` tests require build tag `debug2PC`. Need to handle:
+- Add to deps.yaml as a special dep type, or
+- Build with tag globally (if safe)
+
+### MySQL Tuning (LimitResourceUsage)
+For `vreplication*` and `*heavy` tests, the old system applies MySQL tuning:
+```
+innodb_buffer_pool_size=64M
+innodb_doublewrite=OFF
+innodb_flush_log_at_trx_commit=0
+performance_schema=OFF
+# ... etc
+```
+Consider applying globally or as a dep.
+
+### MySQL Binlog Features
+For `vrepl` tests, enables:
+- `binlog-transaction-compression=ON` - tests vreplication with compressed binlog
+- `binlog-row-value-options=PARTIAL_JSON` - tests vreplication with partial JSON logging
+
+### Memory Check
+`vtorc` tests check for 15GB+ RAM. May need separate handling on standard runners.
+
+### mysql-shell
+Non-xtrabackup tests install `mysql-shell`. Add to base dependencies.
+
+## Migration
+
+1. Create `test/deps.yaml` (done)
+2. Create `.github/workflows/cluster_endtoend.yml`
+3. Test on a branch
+4. Delete old `cluster_endtoend_*.yml` files (61 files)
+5. Optionally remove `test/ci_workflow_gen.go` and templates
+
+## Comparison
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| Workflow files | 61 | 1 |
+| Config lines | ~1600 (config.json) | ~25 (deps.yaml) |
+| Code generation | Required | None |
+| Adding a test | Edit config + regenerate | Just add test file |
+| Test balancing | Manual shard assignment | Automatic via timing |
