@@ -40,6 +40,27 @@ jobs:
               - 'config/**'
               - 'bootstrap.sh'
 
+  build:
+    needs: changes
+    if: needs.changes.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: NOVTADMINBUILD=1 make build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitess-build
+          path: bin/
+          retention-days: 1
+
   matrix:
     needs: changes
     if: needs.changes.outputs.should_run == 'true'
@@ -62,7 +83,7 @@ jobs:
 
   test:
     name: Shard ${{ matrix.id + 1 }}
-    needs: [changes, matrix]
+    needs: [changes, matrix, build]
     if: needs.changes.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -130,8 +151,14 @@ jobs:
           sudo service etcd stop
           go mod download
 
-      - name: Build
-        run: make build
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vitess-build
+          path: bin/
+
+      - name: Fix permissions
+        run: chmod +x bin/*
 
       - name: Run tests
         run: |
