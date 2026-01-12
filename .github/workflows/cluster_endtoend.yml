@@ -167,9 +167,12 @@ jobs:
           source build.env
           go tool gotestsum \
             --format github-actions \
+            --format-hide-empty-pkg \
+            --hide-summary=skipped \
             --junitfile report.xml \
             --rerun-fails=3 \
             --rerun-fails-max-failures=10 \
+            --rerun-fails-run-root-test \
             --packages "${{ matrix.packages }}" \
             -- -v -timeout 45m
 
