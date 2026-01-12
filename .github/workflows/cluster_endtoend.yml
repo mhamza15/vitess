@@ -56,7 +56,7 @@ jobs:
         run: NOVTADMINBUILD=1 GOFLAGS="-v" make build
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vitess-build
           path: bin/
@@ -76,7 +76,7 @@ jobs:
           go-version-file: go.mod
       
       - name: Restore timing cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: timing-data/
           key: test-timing-
@@ -196,7 +196,7 @@ jobs:
           go mod download
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: vitess-build
           path: bin/
@@ -238,7 +238,7 @@ jobs:
 
       - name: Upload timing report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-report-${{ matrix.shard }}
           path: report.json
@@ -251,14 +251,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Restore timing cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: timing-data/
           key: test-timing-
           restore-keys: test-timing-
 
       - name: Download test reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: test-report-*
           path: reports/
@@ -279,7 +279,7 @@ jobs:
           ls -la */
 
       - name: Save timing cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: timing-data/
           key: test-timing-${{ github.run_number }}
