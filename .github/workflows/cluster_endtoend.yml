@@ -115,6 +115,26 @@ jobs:
           deps=$(echo $deps | tr ' ' '\n' | sort -u | xargs)
           echo "deps=$deps" >> $GITHUB_OUTPUT
 
+      - name: Print test plan
+        run: |
+          echo "## Packages to test"
+          for pkg in ${{ matrix.packages }}; do
+            echo "  - $pkg"
+          done
+          echo ""
+          echo "## Dependencies by package"
+          for pkg in ${{ matrix.packages }}; do
+            pkg_deps=$(yq -r ".\"$pkg\" // [] | .[]" test/deps.yaml 2>/dev/null)
+            if [ -n "$pkg_deps" ]; then
+              echo "  $pkg:"
+              for dep in $pkg_deps; do
+                echo "    - $dep"
+              done
+            fi
+          done
+          echo ""
+          echo "## Dependencies to install: ${{ steps.deps.outputs.deps }}"
+
       - name: Setup MySQL
         if: ${{ !contains(steps.deps.outputs.deps, 'xtrabackup') }}
         uses: ./.github/actions/setup-mysql
