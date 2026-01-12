@@ -210,7 +210,6 @@ jobs:
           source build.env
           go tool gotestsum \
             --format github-actions \
-            --format-hide-empty-pkg \
             --hide-summary=skipped \
             --junitfile report.xml \
             --jsonfile report.json \
