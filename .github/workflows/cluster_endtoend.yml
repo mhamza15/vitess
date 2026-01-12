@@ -52,7 +52,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: NOVTADMINBUILD=1 make build
+        run: NOVTADMINBUILD=1 GOFLAGS="-v" make build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
