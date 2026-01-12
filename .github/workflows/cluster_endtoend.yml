@@ -61,6 +61,7 @@ jobs:
           echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
 
   test:
+    name: Shard ${{ matrix.id + 1 }}
     needs: [changes, matrix]
     if: needs.changes.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
