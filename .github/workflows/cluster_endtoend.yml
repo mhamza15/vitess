@@ -15,6 +15,7 @@ permissions: read-all
 
 env:
   PARTITIONS: 32
+  TIMING_RUNS_TO_KEEP: 3
 
 jobs:
   changes:
@@ -74,11 +75,26 @@ jobs:
         with:
           go-version-file: go.mod
       
+      - name: Restore timing cache
+        uses: actions/cache/restore@v4
+        with:
+          path: timing-data/
+          key: test-timing-
+          restore-keys: test-timing-
+
       - name: Generate test matrix
         id: generate
         run: |
-          echo '{}' > empty-timing.json
-          go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files empty-timing.json --partitions $PARTITIONS > matrix.json
+          if ls timing-data/*/*.json 1>/dev/null 2>&1; then
+            echo "Using cached timing data:"
+            ls -la timing-data/*/
+            TIMING_FILES="timing-data/*/*.json"
+          else
+            echo "No timing data found, using empty timing"
+            echo '{}' > empty-timing.json
+            TIMING_FILES="empty-timing.json"
+          fi
+          go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS > matrix.json
           # Convert 0-indexed id to 1-indexed shard number
           jq '.include |= map(.shard = .id + 1)' matrix.json | tee matrix-final.json
           echo "matrix=$(jq -c . matrix-final.json)" >> $GITHUB_OUTPUT
@@ -194,7 +210,7 @@ jobs:
             -- -timeout 45m -args -logtostderr
 
       - name: Slowest tests
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           echo "## Slowest Tests" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
@@ -202,9 +218,57 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Test Report
-        if: always()
+        if: ${{ !cancelled() }}
         uses: dorny/test-reporter@v2
         with:
           name: Test Results (Shard ${{ matrix.shard }})
           path: report.json
           reporter: golang-json
+
+      - name: Upload timing report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ matrix.shard }}
+          path: report.json
+          retention-days: 1
+
+  collect-timing:
+    name: Collect Timing Data
+    needs: [changes, test]
+    if: needs.changes.outputs.should_run == 'true' && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Restore timing cache
+        uses: actions/cache/restore@v4
+        with:
+          path: timing-data/
+          key: test-timing-
+          restore-keys: test-timing-
+
+      - name: Download test reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-report-*
+          path: reports/
+
+      - name: Collect timing data
+        run: |
+          mkdir -p timing-data/run-${{ github.run_number }}
+          for dir in reports/test-report-*; do
+            shard=$(basename "$dir" | sed 's/test-report-//')
+            cp "$dir/report.json" "timing-data/run-${{ github.run_number }}/shard-${shard}.json"
+          done
+          
+          # Keep only the last N runs
+          cd timing-data
+          ls -d run-* 2>/dev/null | sort -t- -k2 -n | head -n -$TIMING_RUNS_TO_KEEP | xargs -r rm -rf
+          
+          echo "Timing data after collection:"
+          ls -la */
+
+      - name: Save timing cache
+        uses: actions/cache/save@v4
+        with:
+          path: timing-data/
+          key: test-timing-${{ github.run_number }}
