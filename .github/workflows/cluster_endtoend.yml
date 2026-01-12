@@ -79,10 +79,12 @@ jobs:
         run: |
           echo '{}' > empty-timing.json
           go list ./go/test/endtoend/... | go tool gotestsum tool ci-matrix --timing-files empty-timing.json --partitions $PARTITIONS > matrix.json
-          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
+          # Convert 0-indexed id to 1-indexed shard number
+          jq '.include |= map(.shard = .id + 1)' matrix.json > matrix-final.json
+          echo "matrix=$(jq -c . matrix-final.json)" >> $GITHUB_OUTPUT
 
   test:
-    name: Shard ${{ matrix.id + 1 }}
+    name: Shard ${{ matrix.shard }}
     needs: [changes, matrix, build]
     if: needs.changes.outputs.should_run == 'true'
     runs-on: ubuntu-24.04
