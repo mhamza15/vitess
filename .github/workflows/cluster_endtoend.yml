@@ -147,7 +147,7 @@ jobs:
           sudo apt-get -qq install -y lsb-release gnupg2
           wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
           sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
-          sudo percona-release setup pxb-84
+          sudo percona-release enable pxb-84-lts
           sudo apt-get -qq update
           sudo apt-get -qq install -y percona-xtrabackup-84 lz4
 
