@@ -80,9 +80,9 @@ jobs:
           [ -n "$EXCLUDES" ] && PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDES")
           
           # Generate matrix and convert 0-indexed id to 1-indexed shard number
-          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS \
+          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions "$PARTITIONS" \
             | jq '.include |= map(.shard = .id + 1)' > matrix.json
-          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
+          echo "matrix=$(jq -c . matrix.json)" >> "$GITHUB_OUTPUT"
 
   test:
     name: Shard ${{ matrix.shard }}
@@ -115,10 +115,10 @@ jobs:
             pkg_deps=$(yq -r ".deps.\"$pkg\" // [] | .[]" test/config.yaml 2>/dev/null)
             [ -n "$pkg_deps" ] && deps="$deps $pkg_deps"
           done
-          deps=$(echo $deps | tr ' ' '\n' | sort -u | xargs)
+          deps=$(echo "$deps" | tr ' ' '\n' | sort -u | xargs)
           echo ""
           echo "## Dependencies to install: $deps"
-          echo "deps=$deps" >> $GITHUB_OUTPUT
+          echo "deps=$deps" >> "$GITHUB_OUTPUT"
 
       - name: Setup MySQL
         uses: ./.github/actions/setup-mysql
@@ -128,8 +128,8 @@ jobs:
       - name: Install XtraBackup
         if: contains(steps.deps.outputs.deps, 'xtrabackup')
         run: |
-          wget -q https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
-          sudo DEBIAN_FRONTEND=noninteractive dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
+          wget -q "https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb"
+          sudo DEBIAN_FRONTEND=noninteractive dpkg -i "percona-release_latest.$(lsb_release -sc)_all.deb"
           sudo percona-release enable pxb-84-lts
           sudo apt-get -qq update
           sudo apt-get -qq install -y percona-xtrabackup-84 lz4
@@ -173,7 +173,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           slowest=$(go tool gotestsum tool slowest --jsonfile report.json --threshold 1m)
-          [ -n "$slowest" ] && printf '## Slowest Tests\n```\n%s\n```\n' "$slowest" >> $GITHUB_STEP_SUMMARY
+          [ -n "$slowest" ] && printf '## Slowest Tests\n```\n%s\n```\n' "$slowest" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Test Report
         if: failure() && steps.tests.outcome == 'failure'
@@ -220,7 +220,7 @@ jobs:
           
           # Keep only the last N runs
           cd timing-data
-          ls -d run-* 2>/dev/null | sort -t- -k2 -n | head -n -$TIMING_RUNS_TO_KEEP | xargs -r rm -rf
+          ls -d run-* 2>/dev/null | sort -t- -k2 -n | head -n -"$TIMING_RUNS_TO_KEEP" | xargs -r rm -rf
 
       - name: Save timing cache
         uses: actions/cache/save@v5
