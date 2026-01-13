@@ -231,7 +231,7 @@ jobs:
           fi
 
       - name: Test Report
-        if: steps.tests.outcome == 'failure'
+        if: failure() && steps.tests.outcome == 'failure'
         uses: dorny/test-reporter@v2
         with:
           name: Test Results (Shard ${{ matrix.shard }})
