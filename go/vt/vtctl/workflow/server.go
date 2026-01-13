@@ -1193,6 +1193,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 		DeferSecondaryKeys:        req.DeferSecondaryKeys,
 		AtomicCopy:                req.AtomicCopy,
 		WorkflowOptions:           req.WorkflowOptions,
+		Views:                     views,
 	}
 	if req.SourceTimeZone != "" {
 		ms.SourceTimeZone = req.SourceTimeZone
@@ -1345,6 +1346,57 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	})
 }
 
+// resolveTables returns the set of tables the MoveTables workflow should move based on the request.
+func (s *Server) resolveTables(req *vtctldatapb.MoveTablesCreateRequest, sourceKeyspace string, sourceTables map[string]*tabletmanagerdatapb.TableDefinition) ([]string, error) {
+	var tables []string
+
+	// If a specific set of tables was requested, validate them and use those.
+	if len(req.IncludeTables) > 0 {
+		tables = req.IncludeTables
+		if err := validateSourceTablesExist(sourceKeyspace, sourceTables, tables); err != nil {
+			return nil, err
+		}
+	} else {
+		// Otherwise, ensure that all tables were explicitly requested.
+		if !req.AllTables {
+			return nil, errNoTablesToMove
+		}
+
+		tables = maps.Keys(sourceTables)
+	}
+
+	// If a specific set of tables was requested to be excluded, validate them and filter them out.
+	if len(req.ExcludeTables) > 0 {
+		err := validateSourceTablesExist(sourceKeyspace, sourceTables, req.ExcludeTables)
+		if err != nil {
+			return nil, err
+		}
+
+		excludeSet := make(map[string]struct{}, len(req.ExcludeTables))
+		for _, table := range req.ExcludeTables {
+			excludeSet[table] = struct{}{}
+		}
+
+		var includedTables []string
+		for _, t := range tables {
+			if shouldExclude(t, excludeSet) {
+				continue
+			}
+
+			includedTables = append(includedTables, t)
+		}
+
+		tables = includedTables
+
+		// Make sure we didn't exclude all tables.
+		if len(tables) == 0 {
+			return nil, errNoTablesToMove
+		}
+	}
+
+	return tables, nil
+}
+
 func validateRoutingRuleFlags(req *vtctldatapb.MoveTablesCreateRequest, mz *materializer) error {
 	if mz.IsMultiTenantMigration() {
 		switch {
@@ -1425,70 +1477,23 @@ func (s *Server) setupInitialRoutingRules(ctx context.Context, req *vtctldatapb.
 			rules[key+typ] = []string{route}
 		}
 	}
+
 	for _, table := range tables {
 		for _, ks := range []string{globalTableQualifier, targetKeyspace, sourceKeyspace} {
 			routeTableToSource(ks, table)
 		}
 	}
-	// Setup view routing rules (same as tables).
+
 	for _, view := range views {
 		for _, ks := range []string{globalTableQualifier, targetKeyspace, sourceKeyspace} {
 			routeTableToSource(ks, view)
 		}
 	}
+
 	if err := topotools.SaveRoutingRules(ctx, s.ts, rules); err != nil {
 		return err
 	}
 	return nil
-}
-
-// resolveTables returns the set of tables the MoveTables workflow should move based on the request.
-func (s *Server) resolveTables(req *vtctldatapb.MoveTablesCreateRequest, sourceKeyspace string, sourceTables map[string]*tabletmanagerdatapb.TableDefinition) ([]string, error) {
-	var tables []string
-
-	// If a specific set of tables was requested, validate them and use those.
-	if len(req.IncludeTables) > 0 {
-		tables = req.IncludeTables
-		if err := validateSourceTablesExist(sourceKeyspace, sourceTables, tables); err != nil {
-			return nil, err
-		}
-	} else {
-		// Otherwise, ensure that all tables were explicitly requested.
-		if !req.AllTables {
-			return nil, errNoTablesToMove
-		}
-
-		tables = maps.Keys(sourceTables)
-	}
-
-	// If a specific set of tables was requested to be excluded, validate them and filter them out.
-	if len(req.ExcludeTables) > 0 {
-		err := validateSourceTablesExist(sourceKeyspace, sourceTables, req.ExcludeTables)
-		if err != nil {
-			return nil, err
-		}
-
-		excludeSet := make(map[string]struct{}, len(req.ExcludeTables))
-		for _, table := range req.ExcludeTables {
-			excludeSet[table] = struct{}{}
-		}
-
-		var filteredTables []string
-		for _, table := range tables {
-			if shouldExclude(table, excludeSet) {
-				continue
-			}
-
-			filteredTables = append(filteredTables, table)
-		}
-		tables = filteredTables
-	}
-
-	if len(tables) == 0 {
-		return nil, errNoTablesToMove
-	}
-
-	return tables, nil
 }
 
 // MoveTablesComplete is part of the vtctlservicepb.VtctldServer interface.
@@ -1848,7 +1853,7 @@ func (s *Server) getCopyProgress(ctx context.Context, ts *trafficSwitcher) (*cop
 	}
 	getTablesQuery := "select distinct table_name from _vt.copy_state cs, _vt.vreplication vr where vr.id = cs.vrepl_id and vr.id = %d"
 	getRowCountQuery := "select table_name, table_rows, data_length from information_schema.tables where table_schema = %s and table_name in (%s)"
-	var inProgressTables = make(map[string]struct{})
+	inProgressTables := make(map[string]struct{})
 	var mu sync.Mutex
 	err := ts.ForAllTargets(func(target *MigrationTarget) error {
 		for id := range target.Sources {
@@ -2547,6 +2552,11 @@ func (s *Server) dropSources(ctx context.Context, ts *trafficSwitcher, removalTy
 				if err := sw.removeSourceTables(ctx, removalType); err != nil {
 					return nil, err
 				}
+
+				if err := sw.removeSourceViews(ctx, removalType); err != nil {
+					return nil, err
+				}
+
 				if err := sw.dropSourceDeniedTables(ctx); err != nil {
 					return nil, err
 				}
