@@ -85,7 +85,7 @@ jobs:
           
           # Generate matrix and convert 0-indexed id to 1-indexed shard number
           echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files "$TIMING_FILES" --partitions "$PARTITIONS" \
-            | jq '.include |= map(.shard = .id + 1)' > matrix.json
+            | jq '.include |= map(.shard = .id + 1)' | tee matrix.json
           echo "matrix=$(jq -c . matrix.json)" >> "$GITHUB_OUTPUT"
 
   test:
