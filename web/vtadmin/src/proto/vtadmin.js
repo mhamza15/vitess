@@ -128177,6 +128177,7 @@ export const vtctldata = $root.vtctldata = (() => {
          * @property {boolean|null} [atomic_copy] MaterializeSettings atomic_copy
          * @property {vtctldata.IWorkflowOptions|null} [workflow_options] MaterializeSettings workflow_options
          * @property {Array.<string>|null} [reference_tables] MaterializeSettings reference_tables
+         * @property {Array.<string>|null} [views] MaterializeSettings views
          */
 
         /**
@@ -128191,6 +128192,7 @@ export const vtctldata = $root.vtctldata = (() => {
             this.table_settings = [];
             this.source_shards = [];
             this.reference_tables = [];
+            this.views = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -128342,6 +128344,14 @@ export const vtctldata = $root.vtctldata = (() => {
         MaterializeSettings.prototype.reference_tables = $util.emptyArray;
 
         /**
+         * MaterializeSettings views.
+         * @member {Array.<string>} views
+         * @memberof vtctldata.MaterializeSettings
+         * @instance
+         */
+        MaterializeSettings.prototype.views = $util.emptyArray;
+
+        /**
          * Creates a new MaterializeSettings instance using the specified properties.
          * @function create
          * @memberof vtctldata.MaterializeSettings
@@ -128404,6 +128414,9 @@ export const vtctldata = $root.vtctldata = (() => {
             if (message.reference_tables != null && message.reference_tables.length)
                 for (let i = 0; i < message.reference_tables.length; ++i)
                     writer.uint32(/* id 18, wireType 2 =*/146).string(message.reference_tables[i]);
+            if (message.views != null && message.views.length)
+                for (let i = 0; i < message.views.length; ++i)
+                    writer.uint32(/* id 19, wireType 2 =*/154).string(message.views[i]);
             return writer;
         };
 
@@ -128514,6 +128527,12 @@ export const vtctldata = $root.vtctldata = (() => {
                         if (!(message.reference_tables && message.reference_tables.length))
                             message.reference_tables = [];
                         message.reference_tables.push(reader.string());
+                        break;
+                    }
+                case 19: {
+                        if (!(message.views && message.views.length))
+                            message.views = [];
+                        message.views.push(reader.string());
                         break;
                     }
                 default:
@@ -128634,6 +128653,13 @@ export const vtctldata = $root.vtctldata = (() => {
                     if (!$util.isString(message.reference_tables[i]))
                         return "reference_tables: string[] expected";
             }
+            if (message.views != null && message.hasOwnProperty("views")) {
+                if (!Array.isArray(message.views))
+                    return "views: array expected";
+                for (let i = 0; i < message.views.length; ++i)
+                    if (!$util.isString(message.views[i]))
+                        return "views: string[] expected";
+            }
             return null;
         };
 
@@ -128746,6 +128772,13 @@ export const vtctldata = $root.vtctldata = (() => {
                 for (let i = 0; i < object.reference_tables.length; ++i)
                     message.reference_tables[i] = String(object.reference_tables[i]);
             }
+            if (object.views) {
+                if (!Array.isArray(object.views))
+                    throw TypeError(".vtctldata.MaterializeSettings.views: array expected");
+                message.views = [];
+                for (let i = 0; i < object.views.length; ++i)
+                    message.views[i] = String(object.views[i]);
+            }
             return message;
         };
 
@@ -128766,6 +128799,7 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.table_settings = [];
                 object.source_shards = [];
                 object.reference_tables = [];
+                object.views = [];
             }
             if (options.defaults) {
                 object.workflow = "";
@@ -128828,6 +128862,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.reference_tables = [];
                 for (let j = 0; j < message.reference_tables.length; ++j)
                     object.reference_tables[j] = message.reference_tables[j];
+            }
+            if (message.views && message.views.length) {
+                object.views = [];
+                for (let j = 0; j < message.views.length; ++j)
+                    object.views[j] = message.views[j];
             }
             return object;
         };
@@ -131109,6 +131148,7 @@ export const vtctldata = $root.vtctldata = (() => {
          * @property {Object.<string,string>|null} [config] WorkflowOptions config
          * @property {string|null} [global_keyspace] WorkflowOptions global_keyspace
          * @property {Array.<string>|null} [lookup_vindexes] WorkflowOptions lookup_vindexes
+         * @property {Array.<string>|null} [views] WorkflowOptions views
          */
 
         /**
@@ -131123,6 +131163,7 @@ export const vtctldata = $root.vtctldata = (() => {
             this.shards = [];
             this.config = {};
             this.lookup_vindexes = [];
+            this.views = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -131178,6 +131219,14 @@ export const vtctldata = $root.vtctldata = (() => {
         WorkflowOptions.prototype.lookup_vindexes = $util.emptyArray;
 
         /**
+         * WorkflowOptions views.
+         * @member {Array.<string>} views
+         * @memberof vtctldata.WorkflowOptions
+         * @instance
+         */
+        WorkflowOptions.prototype.views = $util.emptyArray;
+
+        /**
          * Creates a new WorkflowOptions instance using the specified properties.
          * @function create
          * @memberof vtctldata.WorkflowOptions
@@ -131216,6 +131265,9 @@ export const vtctldata = $root.vtctldata = (() => {
             if (message.lookup_vindexes != null && message.lookup_vindexes.length)
                 for (let i = 0; i < message.lookup_vindexes.length; ++i)
                     writer.uint32(/* id 6, wireType 2 =*/50).string(message.lookup_vindexes[i]);
+            if (message.views != null && message.views.length)
+                for (let i = 0; i < message.views.length; ++i)
+                    writer.uint32(/* id 7, wireType 2 =*/58).string(message.views[i]);
             return writer;
         };
 
@@ -131297,6 +131349,12 @@ export const vtctldata = $root.vtctldata = (() => {
                         message.lookup_vindexes.push(reader.string());
                         break;
                     }
+                case 7: {
+                        if (!(message.views && message.views.length))
+                            message.views = [];
+                        message.views.push(reader.string());
+                        break;
+                    }
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -131369,6 +131427,13 @@ export const vtctldata = $root.vtctldata = (() => {
                     if (!$util.isString(message.lookup_vindexes[i]))
                         return "lookup_vindexes: string[] expected";
             }
+            if (message.views != null && message.hasOwnProperty("views")) {
+                if (!Array.isArray(message.views))
+                    return "views: array expected";
+                for (let i = 0; i < message.views.length; ++i)
+                    if (!$util.isString(message.views[i]))
+                        return "views: string[] expected";
+            }
             return null;
         };
 
@@ -131429,6 +131494,13 @@ export const vtctldata = $root.vtctldata = (() => {
                 for (let i = 0; i < object.lookup_vindexes.length; ++i)
                     message.lookup_vindexes[i] = String(object.lookup_vindexes[i]);
             }
+            if (object.views) {
+                if (!Array.isArray(object.views))
+                    throw TypeError(".vtctldata.WorkflowOptions.views: array expected");
+                message.views = [];
+                for (let i = 0; i < object.views.length; ++i)
+                    message.views[i] = String(object.views[i]);
+            }
             return message;
         };
 
@@ -131448,6 +131520,7 @@ export const vtctldata = $root.vtctldata = (() => {
             if (options.arrays || options.defaults) {
                 object.shards = [];
                 object.lookup_vindexes = [];
+                object.views = [];
             }
             if (options.objects || options.defaults)
                 object.config = {};
@@ -131477,6 +131550,11 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.lookup_vindexes = [];
                 for (let j = 0; j < message.lookup_vindexes.length; ++j)
                     object.lookup_vindexes[j] = message.lookup_vindexes[j];
+            }
+            if (message.views && message.views.length) {
+                object.views = [];
+                for (let j = 0; j < message.views.length; ++j)
+                    object.views[j] = message.views[j];
             }
             return object;
         };
@@ -171952,6 +172030,10 @@ export const vtctldata = $root.vtctldata = (() => {
          * @property {boolean|null} [no_routing_rules] MoveTablesCreateRequest no_routing_rules
          * @property {boolean|null} [atomic_copy] MoveTablesCreateRequest atomic_copy
          * @property {vtctldata.IWorkflowOptions|null} [workflow_options] MoveTablesCreateRequest workflow_options
+         * @property {boolean|null} [all_views] MoveTablesCreateRequest all_views
+         * @property {Array.<string>|null} [include_views] MoveTablesCreateRequest include_views
+         * @property {Array.<string>|null} [exclude_views] MoveTablesCreateRequest exclude_views
+         * @property {boolean|null} [skip_view_validation] MoveTablesCreateRequest skip_view_validation
          */
 
         /**
@@ -171968,6 +172050,8 @@ export const vtctldata = $root.vtctldata = (() => {
             this.source_shards = [];
             this.include_tables = [];
             this.exclude_tables = [];
+            this.include_views = [];
+            this.exclude_views = [];
             if (properties)
                 for (let keys = Object.keys(properties), i = 0; i < keys.length; ++i)
                     if (properties[keys[i]] != null)
@@ -172135,6 +172219,38 @@ export const vtctldata = $root.vtctldata = (() => {
         MoveTablesCreateRequest.prototype.workflow_options = null;
 
         /**
+         * MoveTablesCreateRequest all_views.
+         * @member {boolean} all_views
+         * @memberof vtctldata.MoveTablesCreateRequest
+         * @instance
+         */
+        MoveTablesCreateRequest.prototype.all_views = false;
+
+        /**
+         * MoveTablesCreateRequest include_views.
+         * @member {Array.<string>} include_views
+         * @memberof vtctldata.MoveTablesCreateRequest
+         * @instance
+         */
+        MoveTablesCreateRequest.prototype.include_views = $util.emptyArray;
+
+        /**
+         * MoveTablesCreateRequest exclude_views.
+         * @member {Array.<string>} exclude_views
+         * @memberof vtctldata.MoveTablesCreateRequest
+         * @instance
+         */
+        MoveTablesCreateRequest.prototype.exclude_views = $util.emptyArray;
+
+        /**
+         * MoveTablesCreateRequest skip_view_validation.
+         * @member {boolean} skip_view_validation
+         * @memberof vtctldata.MoveTablesCreateRequest
+         * @instance
+         */
+        MoveTablesCreateRequest.prototype.skip_view_validation = false;
+
+        /**
          * Creates a new MoveTablesCreateRequest instance using the specified properties.
          * @function create
          * @memberof vtctldata.MoveTablesCreateRequest
@@ -172206,6 +172322,16 @@ export const vtctldata = $root.vtctldata = (() => {
                 writer.uint32(/* id 19, wireType 0 =*/152).bool(message.atomic_copy);
             if (message.workflow_options != null && Object.hasOwnProperty.call(message, "workflow_options"))
                 $root.vtctldata.WorkflowOptions.encode(message.workflow_options, writer.uint32(/* id 20, wireType 2 =*/162).fork()).ldelim();
+            if (message.all_views != null && Object.hasOwnProperty.call(message, "all_views"))
+                writer.uint32(/* id 21, wireType 0 =*/168).bool(message.all_views);
+            if (message.include_views != null && message.include_views.length)
+                for (let i = 0; i < message.include_views.length; ++i)
+                    writer.uint32(/* id 22, wireType 2 =*/178).string(message.include_views[i]);
+            if (message.exclude_views != null && message.exclude_views.length)
+                for (let i = 0; i < message.exclude_views.length; ++i)
+                    writer.uint32(/* id 23, wireType 2 =*/186).string(message.exclude_views[i]);
+            if (message.skip_view_validation != null && Object.hasOwnProperty.call(message, "skip_view_validation"))
+                writer.uint32(/* id 24, wireType 0 =*/192).bool(message.skip_view_validation);
             return writer;
         };
 
@@ -172333,6 +172459,26 @@ export const vtctldata = $root.vtctldata = (() => {
                     }
                 case 20: {
                         message.workflow_options = $root.vtctldata.WorkflowOptions.decode(reader, reader.uint32());
+                        break;
+                    }
+                case 21: {
+                        message.all_views = reader.bool();
+                        break;
+                    }
+                case 22: {
+                        if (!(message.include_views && message.include_views.length))
+                            message.include_views = [];
+                        message.include_views.push(reader.string());
+                        break;
+                    }
+                case 23: {
+                        if (!(message.exclude_views && message.exclude_views.length))
+                            message.exclude_views = [];
+                        message.exclude_views.push(reader.string());
+                        break;
+                    }
+                case 24: {
+                        message.skip_view_validation = reader.bool();
                         break;
                     }
                 default:
@@ -172472,6 +172618,26 @@ export const vtctldata = $root.vtctldata = (() => {
                 if (error)
                     return "workflow_options." + error;
             }
+            if (message.all_views != null && message.hasOwnProperty("all_views"))
+                if (typeof message.all_views !== "boolean")
+                    return "all_views: boolean expected";
+            if (message.include_views != null && message.hasOwnProperty("include_views")) {
+                if (!Array.isArray(message.include_views))
+                    return "include_views: array expected";
+                for (let i = 0; i < message.include_views.length; ++i)
+                    if (!$util.isString(message.include_views[i]))
+                        return "include_views: string[] expected";
+            }
+            if (message.exclude_views != null && message.hasOwnProperty("exclude_views")) {
+                if (!Array.isArray(message.exclude_views))
+                    return "exclude_views: array expected";
+                for (let i = 0; i < message.exclude_views.length; ++i)
+                    if (!$util.isString(message.exclude_views[i]))
+                        return "exclude_views: string[] expected";
+            }
+            if (message.skip_view_validation != null && message.hasOwnProperty("skip_view_validation"))
+                if (typeof message.skip_view_validation !== "boolean")
+                    return "skip_view_validation: boolean expected";
             return null;
         };
 
@@ -172623,6 +172789,24 @@ export const vtctldata = $root.vtctldata = (() => {
                     throw TypeError(".vtctldata.MoveTablesCreateRequest.workflow_options: object expected");
                 message.workflow_options = $root.vtctldata.WorkflowOptions.fromObject(object.workflow_options);
             }
+            if (object.all_views != null)
+                message.all_views = Boolean(object.all_views);
+            if (object.include_views) {
+                if (!Array.isArray(object.include_views))
+                    throw TypeError(".vtctldata.MoveTablesCreateRequest.include_views: array expected");
+                message.include_views = [];
+                for (let i = 0; i < object.include_views.length; ++i)
+                    message.include_views[i] = String(object.include_views[i]);
+            }
+            if (object.exclude_views) {
+                if (!Array.isArray(object.exclude_views))
+                    throw TypeError(".vtctldata.MoveTablesCreateRequest.exclude_views: array expected");
+                message.exclude_views = [];
+                for (let i = 0; i < object.exclude_views.length; ++i)
+                    message.exclude_views[i] = String(object.exclude_views[i]);
+            }
+            if (object.skip_view_validation != null)
+                message.skip_view_validation = Boolean(object.skip_view_validation);
             return message;
         };
 
@@ -172645,6 +172829,8 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.source_shards = [];
                 object.include_tables = [];
                 object.exclude_tables = [];
+                object.include_views = [];
+                object.exclude_views = [];
             }
             if (options.defaults) {
                 object.workflow = "";
@@ -172662,6 +172848,8 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.no_routing_rules = false;
                 object.atomic_copy = false;
                 object.workflow_options = null;
+                object.all_views = false;
+                object.skip_view_validation = false;
             }
             if (message.workflow != null && message.hasOwnProperty("workflow"))
                 object.workflow = message.workflow;
@@ -172718,6 +172906,20 @@ export const vtctldata = $root.vtctldata = (() => {
                 object.atomic_copy = message.atomic_copy;
             if (message.workflow_options != null && message.hasOwnProperty("workflow_options"))
                 object.workflow_options = $root.vtctldata.WorkflowOptions.toObject(message.workflow_options, options);
+            if (message.all_views != null && message.hasOwnProperty("all_views"))
+                object.all_views = message.all_views;
+            if (message.include_views && message.include_views.length) {
+                object.include_views = [];
+                for (let j = 0; j < message.include_views.length; ++j)
+                    object.include_views[j] = message.include_views[j];
+            }
+            if (message.exclude_views && message.exclude_views.length) {
+                object.exclude_views = [];
+                for (let j = 0; j < message.exclude_views.length; ++j)
+                    object.exclude_views[j] = message.exclude_views[j];
+            }
+            if (message.skip_view_validation != null && message.hasOwnProperty("skip_view_validation"))
+                object.skip_view_validation = message.skip_view_validation;
             return object;
         };
 
