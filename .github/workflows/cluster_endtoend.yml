@@ -64,6 +64,7 @@ jobs:
       - name: Generate test matrix
         id: generate
         run: |
+          set -eo pipefail
           # Use cached timing data if available, otherwise start fresh
           if ls timing-data/*/*.json 1>/dev/null 2>&1; then
             echo "Using cached timing data"
@@ -80,7 +81,7 @@ jobs:
           [ -n "$EXCLUDES" ] && PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDES")
           
           # Generate matrix and convert 0-indexed id to 1-indexed shard number
-          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions "$PARTITIONS" \
+          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files "$TIMING_FILES" --partitions "$PARTITIONS" \
             | jq '.include |= map(.shard = .id + 1)' > matrix.json
           echo "matrix=$(jq -c . matrix.json)" >> "$GITHUB_OUTPUT"
 
