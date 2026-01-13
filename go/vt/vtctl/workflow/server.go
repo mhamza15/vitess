@@ -1285,7 +1285,7 @@ func (s *Server) moveTablesCreate(ctx context.Context, req *vtctldatapb.MoveTabl
 	// Now that the streams have been successfully created, let's put the associated
 	// routing rules and denied tables entries in place.
 	if externalTopo == nil {
-		if err := s.setupInitialRoutingRules(ctx, req, mz, tables); err != nil {
+		if err := s.setupInitialRoutingRules(ctx, req, mz, tables, views); err != nil {
 			return nil, err
 		}
 	}
@@ -1374,7 +1374,7 @@ func setupInitialDeniedTables(ctx context.Context, ts *trafficSwitcher) error {
 	})
 }
 
-func (s *Server) setupInitialRoutingRules(ctx context.Context, req *vtctldatapb.MoveTablesCreateRequest, mz *materializer, tables []string) error {
+func (s *Server) setupInitialRoutingRules(ctx context.Context, req *vtctldatapb.MoveTablesCreateRequest, mz *materializer, tables, views []string) error {
 	if err := validateRoutingRuleFlags(req, mz); err != nil {
 		return err
 	}
@@ -1428,6 +1428,12 @@ func (s *Server) setupInitialRoutingRules(ctx context.Context, req *vtctldatapb.
 	for _, table := range tables {
 		for _, ks := range []string{globalTableQualifier, targetKeyspace, sourceKeyspace} {
 			routeTableToSource(ks, table)
+		}
+	}
+	// Setup view routing rules (same as tables).
+	for _, view := range views {
+		for _, ks := range []string{globalTableQualifier, targetKeyspace, sourceKeyspace} {
+			routeTableToSource(ks, view)
 		}
 	}
 	if err := topotools.SaveRoutingRules(ctx, s.ts, rules); err != nil {

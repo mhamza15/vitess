@@ -17,17 +17,23 @@ limitations under the License.
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"golang.org/x/exp/maps"
 
+	"vitess.io/vitess/go/vt/log"
+	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 	tabletmanagerdatapb "vitess.io/vitess/go/vt/proto/tabletmanagerdata"
 	vtctldatapb "vitess.io/vitess/go/vt/proto/vtctldata"
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 	"vitess.io/vitess/go/vt/schemadiff"
 	"vitess.io/vitess/go/vt/sqlparser"
+	"vitess.io/vitess/go/vt/topo"
+	"vitess.io/vitess/go/vt/vtctl/schematools"
 	"vitess.io/vitess/go/vt/vterrors"
+	"vitess.io/vitess/go/vt/vttablet/tabletmanager/vreplication"
 )
 
 // resolveViewsOptions holds the options to resolve views for a MoveTables create request.
@@ -192,4 +198,121 @@ func excludeViews(opts resolveViewsOptions, views map[string]*tabletmanagerdatap
 	}
 
 	return nil
+}
+
+// deployViews creates the materializer's views on the target keyspace.
+func (mz *materializer) deployViews(ctx context.Context, views []string) error {
+	if len(views) == 0 {
+		return nil
+	}
+
+	// Collect all the DDLs from the source.
+	sourceDDLMap, err := getSourceDDLs(ctx, mz.sourceTs, mz.tmc, mz.sourceShards, true)
+	if err != nil {
+		return fmt.Errorf("deploy views: failed to get source ddls: %w", err)
+	}
+
+	// Create the views on each target shard.
+	return forAllShards(mz.targetShards, func(target *topo.ShardInfo) error {
+		// Fetch existing views so we can skip them if they already exist on the target.
+		targetViewSet, err := mz.getTargetViewSet(ctx, target)
+		if err != nil {
+			return fmt.Errorf("deploy views: failed to get target view set: %w", err)
+		}
+
+		// Get the primary tablet's info to run the DDLs on it.
+		targetTablet, err := mz.ts.GetTablet(ctx, target.PrimaryAlias)
+		if err != nil {
+			return fmt.Errorf("deploy views: failed to get target tablet: %w", err)
+		}
+
+		// Collect the views that don't already exist on the target.
+		viewsToCreate := make(map[string]struct{})
+		for _, view := range views {
+			if _, exists := targetViewSet[view]; exists {
+				continue
+			}
+
+			viewsToCreate[view] = struct{}{}
+		}
+
+		if len(viewsToCreate) == 0 {
+			log.Info("deploy views: all views already created")
+			return nil
+		}
+
+		sql, err := mz.buildViewsDDL(sourceDDLMap, viewsToCreate, targetTablet.DbName())
+		if err != nil {
+			return fmt.Errorf("deploy views: failed to build views ddl: %w", err)
+		}
+
+		log.Infof("deploy views: applying schema %q", sql)
+
+		// Apply the DDLs on the tablet.
+		sc := &tmutils.SchemaChange{SQL: sql, Force: false, AllowReplication: true, SQLMode: vreplication.SQLMode}
+		_, err = mz.tmc.ApplySchema(ctx, targetTablet.Tablet, sc)
+		if err != nil {
+			return fmt.Errorf("deploy views: failed to apply schema: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// getTargetViewSet returns the current views on the given target.
+func (mz *materializer) getTargetViewSet(ctx context.Context, target *topo.ShardInfo) (map[string]struct{}, error) {
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: []string{"/.*/"}, IncludeViews: true}
+	targetSchema, err := schematools.GetSchema(ctx, mz.ts, mz.tmc, target.PrimaryAlias, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schema for target: %w", err)
+	}
+
+	targetViews := make(map[string]struct{})
+	for _, td := range targetSchema.TableDefinitions {
+		// Filter out non-views
+		if td.Type != tmutils.TableView {
+			continue
+		}
+
+		targetViews[td.Name] = struct{}{}
+	}
+
+	return targetViews, nil
+}
+
+// buildViewsDDL returns the view DDL to apply on the target database. The source DDLs contain
+// {{.DatabaseName}} placeholders which are replaced with the target database name. Views are
+// sorted in dependency order.
+func (mz *materializer) buildViewsDDL(sourceDDLMap map[string]string, views map[string]struct{}, dbName string) (string, error) {
+	// Replace {{.DatabaseName}} placeholders with the actual target database name.
+	sourceDDLs := make([]string, 0, len(sourceDDLMap))
+	for _, ddl := range sourceDDLMap {
+		ddl, err := fillStringTemplate(ddl, map[string]string{"DatabaseName": dbName})
+		if err != nil {
+			return "", fmt.Errorf("failed to fill string template: %w", err)
+		}
+
+		sourceDDLs = append(sourceDDLs, ddl)
+	}
+
+	// We need to sort the views in dependency order, as one view may be reliant on another.
+	env := schemadiff.NewEnv(mz.env, mz.env.CollationEnv().DefaultConnectionCharset())
+	schema, err := schemadiff.NewSchemaFromQueries(env, sourceDDLs)
+	if err != nil {
+		return "", fmt.Errorf("failed to create schema from queries: %w", err)
+	}
+	orderedViews := schema.Views()
+
+	// Collect the DDLs (in dependency order) for the views that we should create.
+	var ddls []string
+	for _, view := range orderedViews {
+		name := view.Name()
+		if _, shouldCreate := views[name]; !shouldCreate {
+			continue
+		}
+
+		ddls = append(ddls, view.Create().CanonicalStatementString())
+	}
+
+	return strings.Join(ddls, ";\n"), nil
 }
