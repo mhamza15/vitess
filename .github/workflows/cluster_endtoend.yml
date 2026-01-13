@@ -176,7 +176,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           slowest=$(go tool gotestsum tool slowest --jsonfile report.json --threshold 1m)
-          [ -n "$slowest" ] && printf '## Slowest Tests\n```\n%s\n```\n' "$slowest" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$slowest" ]; then
+            echo '## Slowest Tests' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$slowest" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Test Report
         if: failure() && steps.tests.outcome == 'failure'
