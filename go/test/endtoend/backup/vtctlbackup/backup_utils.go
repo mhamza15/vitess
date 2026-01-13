@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -86,6 +87,7 @@ var (
 			) Engine=InnoDB
 		`
 	SetupReplica3Tablet func(extraArgs []string) (*cluster.Vttablet, error)
+	baseTabletArgs      []string
 )
 
 type CompressionDetails struct {
@@ -94,6 +96,23 @@ type CompressionDetails struct {
 	ExternalCompressorExt           string
 	ExternalDecompressorCmd         string
 	ManifestExternalDecompressorCmd string
+}
+
+// resetTabletExtraArgs resets all tablet ExtraArgs to their base state. This prevents test pollution where args from
+// one test leak into subsequent tests.
+func resetTabletExtraArgs() {
+	if primary != nil {
+		primary.VttabletProcess.ExtraArgs = slices.Clone(baseTabletArgs)
+	}
+	if replica1 != nil {
+		replica1.VttabletProcess.ExtraArgs = slices.Clone(baseTabletArgs)
+	}
+	if replica2 != nil {
+		replica2.VttabletProcess.ExtraArgs = slices.Clone(baseTabletArgs)
+	}
+	if replica3 != nil {
+		replica3.VttabletProcess.ExtraArgs = slices.Clone(baseTabletArgs)
+	}
 }
 
 // LaunchCluster : starts the cluster as per given params.
@@ -198,6 +217,9 @@ func LaunchCluster(setupType int, streamMode string, stripes int, cDetails *Comp
 			)
 		}
 		tablet.VttabletProcess.ExtraArgs = commonTabletArg
+		if baseTabletArgs == nil {
+			baseTabletArgs = slices.Clone(commonTabletArg)
+		}
 
 		if setupType == Mysqlctld {
 			mysqlctldProcess, err := cluster.MysqlCtldProcessInstance(tablet.TabletUID, tablet.MySQLPort, localCluster.TmpDirectory)
@@ -269,7 +291,7 @@ func LaunchCluster(setupType int, streamMode string, stripes int, cDetails *Comp
 	}
 
 	SetupReplica3Tablet = func(extraArgs []string) (*cluster.Vttablet, error) {
-		replica3.VttabletProcess.ExtraArgs = append(replica3.VttabletProcess.ExtraArgs, extraArgs...)
+		replica3.VttabletProcess.ExtraArgs = append(slices.Clone(baseTabletArgs), extraArgs...)
 		if err := replica3.VttabletProcess.Setup(); err != nil {
 			return replica3, err
 		}
@@ -426,6 +448,7 @@ func TestBackup(t *testing.T, setupType int, streamMode string, stripes int, cDe
 		if retVal := t.Run(test.name, test.method); !retVal {
 			return vterrors.Errorf(vtrpc.Code_UNKNOWN, "test failure: %s", test.name)
 		}
+		resetTabletExtraArgs()
 	}
 
 	t.Run("check for files created with global permissions", func(t *testing.T) {
@@ -1002,7 +1025,7 @@ func verifyInitialReplication(t *testing.T) {
 func restoreWaitForBackup(t *testing.T, tabletType string, cDetails *CompressionDetails, fakeImpl bool) {
 	replica2.Type = tabletType
 	replica2.ValidateTabletRestart(t)
-	replicaTabletArgs := commonTabletArg
+	replicaTabletArgs := slices.Clone(baseTabletArgs)
 	if cDetails != nil {
 		replicaTabletArgs = updateCompressorArgs(replicaTabletArgs, cDetails)
 	}
