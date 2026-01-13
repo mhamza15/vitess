@@ -4,6 +4,9 @@
 # (e.g., upgrade/downgrade testing) and should not run as standalone tests.
 excludes:
   - vitess.io/vitess/go/test/endtoend/versionupgrade
+  - vitess.io/vitess/go/test/endtoend/migration
+  - vitess.io/vitess/go/test/endtoend/topotest/zk2
+  - vitess.io/vitess/go/test/endtoend/transaction/twopc
 
 # Package dependencies. Only packages with special requirements need to be
 # listed. Packages not listed use the default setup (MySQL 8.4, etcd).
@@ -22,9 +25,6 @@ deps:
 
   vitess.io/vitess/go/test/endtoend/topotest/consul:
     - consul
-
-  vitess.io/vitess/go/test/endtoend/topotest/zk2:
-    - zookeeper
 
   vitess.io/vitess/go/test/endtoend/backup/s3:
     - minio
