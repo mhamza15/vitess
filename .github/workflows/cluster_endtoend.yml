@@ -64,9 +64,9 @@ jobs:
       - name: Generate test matrix
         id: generate
         run: |
+          # Use cached timing data if available, otherwise start fresh
           if ls timing-data/*/*.json 1>/dev/null 2>&1; then
-            echo "Using cached timing data:"
-            ls -la timing-data/*/
+            echo "Using cached timing data"
             TIMING_FILES="timing-data/*/*.json"
           else
             echo "No timing data found, using empty timing"
@@ -74,19 +74,15 @@ jobs:
             TIMING_FILES="empty-timing.json"
           fi
           
-          # Get list of packages to test, filtering out excludes
+          # Build package list, excluding packages from config
           PACKAGES=$(go list ./go/test/endtoend/...)
           EXCLUDES=$(yq -r '.excludes // [] | .[]' test/config.yaml 2>/dev/null | paste -sd '|' -)
-          if [ -n "$EXCLUDES" ]; then
-            echo "Excluding packages: $EXCLUDES"
-            PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDES")
-          fi
+          [ -n "$EXCLUDES" ] && PACKAGES=$(echo "$PACKAGES" | grep -Ev "$EXCLUDES")
           
-          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS > matrix.json
-          
-          # Convert 0-indexed id to 1-indexed shard number
-          jq '.include |= map(.shard = .id + 1)' matrix.json | tee matrix-final.json
-          echo "matrix=$(jq -c . matrix-final.json)" >> $GITHUB_OUTPUT
+          # Generate matrix and convert 0-indexed id to 1-indexed shard number
+          echo "$PACKAGES" | go tool gotestsum tool ci-matrix --timing-files $TIMING_FILES --partitions $PARTITIONS \
+            | jq '.include |= map(.shard = .id + 1)' > matrix.json
+          echo "matrix=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
 
   test:
     name: Shard ${{ matrix.shard }}
@@ -112,33 +108,17 @@ jobs:
       - name: Determine dependencies
         id: deps
         run: |
+          echo "## Packages to test"
           deps=""
           for pkg in ${{ matrix.packages }}; do
+            echo "  - $pkg"
             pkg_deps=$(yq -r ".deps.\"$pkg\" // [] | .[]" test/config.yaml 2>/dev/null)
-            deps="$deps $pkg_deps"
+            [ -n "$pkg_deps" ] && deps="$deps $pkg_deps"
           done
           deps=$(echo $deps | tr ' ' '\n' | sort -u | xargs)
+          echo ""
+          echo "## Dependencies to install: $deps"
           echo "deps=$deps" >> $GITHUB_OUTPUT
-
-      - name: Print test plan
-        run: |
-          echo "## Packages to test"
-          for pkg in ${{ matrix.packages }}; do
-            echo "  - $pkg"
-          done
-          echo ""
-          echo "## Dependencies by package"
-          for pkg in ${{ matrix.packages }}; do
-            pkg_deps=$(yq -r ".deps.\"$pkg\" // [] | .[]" test/config.yaml 2>/dev/null)
-            if [ -n "$pkg_deps" ]; then
-              echo "  $pkg:"
-              for dep in $pkg_deps; do
-                echo "    - $dep"
-              done
-            fi
-          done
-          echo ""
-          echo "## Dependencies to install: ${{ steps.deps.outputs.deps }}"
 
       - name: Setup MySQL
         uses: ./.github/actions/setup-mysql
@@ -148,10 +128,8 @@ jobs:
       - name: Install XtraBackup
         if: contains(steps.deps.outputs.deps, 'xtrabackup')
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install -y lsb-release gnupg2
-          wget https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
-          sudo DEBIAN_FRONTEND="noninteractive" dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
+          wget -q https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb
+          sudo DEBIAN_FRONTEND=noninteractive dpkg -i percona-release_latest.$(lsb_release -sc)_all.deb
           sudo percona-release enable pxb-84-lts
           sudo apt-get -qq update
           sudo apt-get -qq install -y percona-xtrabackup-84 lz4
@@ -163,9 +141,8 @@ jobs:
       - name: Install Minio
         if: contains(steps.deps.outputs.deps, 'minio')
         run: |
-          wget https://dl.min.io/server/minio/release/linux-amd64/minio
-          chmod +x minio
-          sudo mv minio /usr/local/bin
+          wget -q https://dl.min.io/server/minio/release/linux-amd64/minio -O /tmp/minio
+          sudo install /tmp/minio /usr/local/bin/minio
 
       - name: Install base dependencies
         run: |
@@ -196,12 +173,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           slowest=$(go tool gotestsum tool slowest --jsonfile report.json --threshold 1m)
-          if [ -n "$slowest" ]; then
-            echo "## Slowest Tests" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$slowest" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+          [ -n "$slowest" ] && printf '## Slowest Tests\n```\n%s\n```\n' "$slowest" >> $GITHUB_STEP_SUMMARY
 
       - name: Test Report
         if: failure() && steps.tests.outcome == 'failure'
@@ -242,16 +214,13 @@ jobs:
         run: |
           mkdir -p timing-data/run-${{ github.run_number }}
           for dir in reports/test-report-*; do
-            shard=$(basename "$dir" | sed 's/test-report-//')
+            shard=${dir##*-}
             cp "$dir/report.json" "timing-data/run-${{ github.run_number }}/shard-${shard}.json"
           done
           
           # Keep only the last N runs
           cd timing-data
           ls -d run-* 2>/dev/null | sort -t- -k2 -n | head -n -$TIMING_RUNS_TO_KEEP | xargs -r rm -rf
-          
-          echo "Timing data after collection:"
-          ls -la */
 
       - name: Save timing cache
         uses: actions/cache/save@v5
