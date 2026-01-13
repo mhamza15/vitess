@@ -101,6 +101,9 @@ jobs:
       VTDATAROOT: /tmp/
     
     steps:
+      - name: Print matrix
+        run: echo '${{ toJSON(matrix) }}' | jq .
+
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
