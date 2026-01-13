@@ -38,6 +38,7 @@ import (
 	"vitess.io/vitess/go/vt/key"
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/logutil"
+	"vitess.io/vitess/go/vt/mysqlctl/tmutils"
 	"vitess.io/vitess/go/vt/schema"
 	"vitess.io/vitess/go/vt/sqlparser"
 	"vitess.io/vitess/go/vt/topo"
@@ -57,36 +58,44 @@ import (
 
 const reverseSuffix = "_reverse"
 
-func getTablesInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, keyspace string) ([]string, error) {
+func getTablesAndViewsInKeyspace(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, keyspace string) (tables, views map[string]*tabletmanagerdatapb.TableDefinition, err error) {
 	shards, err := ts.GetServingShards(ctx, keyspace)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(shards) == 0 {
-		return nil, fmt.Errorf("keyspace %s has no shards", keyspace)
+		return nil, nil, fmt.Errorf("keyspace %s has no shards", keyspace)
 	}
 	primary := shards[0].PrimaryAlias
 	if primary == nil {
-		return nil, fmt.Errorf("shard does not have a primary: %v", shards[0].ShardName())
+		return nil, nil, fmt.Errorf("shard does not have a primary: %v", shards[0].ShardName())
 	}
 	allTables := []string{"/.*/"}
 
 	ti, err := ts.GetTablet(ctx, primary)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, IncludeViews: true}
 	schema, err := tmc.GetSchema(ctx, ti.Tablet, req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	log.Infof("got table schemas: %+v from source primary %v.", schema, primary)
 
-	var sourceTables []string
+	tables = make(map[string]*tabletmanagerdatapb.TableDefinition)
+	views = make(map[string]*tabletmanagerdatapb.TableDefinition)
 	for _, td := range schema.TableDefinitions {
-		sourceTables = append(sourceTables, td.Name)
+		switch td.Type {
+		case tmutils.TableBaseTable:
+			tables[td.Name] = td
+		case tmutils.TableView:
+			views[td.Name] = td
+		}
 	}
-	return sourceTables, nil
+
+	return tables, views, nil
 }
 
 // validateNewWorkflow ensures that the specified workflow doesn't already exist
@@ -249,7 +258,7 @@ func stripAutoIncrement(ddl string, parser *sqlparser.Parser, replace func(colum
 	return sqlparser.String(newDDL), nil
 }
 
-func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, shards []*topo.ShardInfo) (map[string]string, error) {
+func getSourceDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, shards []*topo.ShardInfo, includeViews bool) (map[string]string, error) {
 	sourceDDLs := make(map[string]string)
 	allTables := []string{"/.*/"}
 
@@ -262,7 +271,7 @@ func getSourceTableDDLs(ctx context.Context, ts *topo.Server, tmc tmclient.Table
 	if err != nil {
 		return nil, err
 	}
-	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables}
+	req := &tabletmanagerdatapb.GetSchemaRequest{Tables: allTables, IncludeViews: includeViews}
 	sourceSchema, err := tmc.GetSchema(ctx, ti.Tablet, req)
 	if err != nil {
 		return nil, err
@@ -320,7 +329,7 @@ func matchColInSelect(col sqlparser.IdentifierCI, sel *sqlparser.Select) (*sqlpa
 	return nil, fmt.Errorf("could not find vindex column %v", sqlparser.String(col))
 }
 
-func shouldInclude(table string, excludes []string) bool {
+func shouldExclude(table string, excludes map[string]struct{}) bool {
 	// We filter out internal tables elsewhere when processing SchemaDefinition
 	// structures built from the GetSchema database related API calls. In this
 	// case, however, the table list comes from the user via the -tables flag
@@ -330,14 +339,11 @@ func shouldInclude(table string, excludes []string) bool {
 	// tables to explicitly specify.
 	// But given that this should never be done in practice, we ignore the request.
 	if schema.IsInternalOperationTableName(table) {
-		return false
+		return true
 	}
-	for _, t := range excludes {
-		if t == table {
-			return false
-		}
-	}
-	return true
+
+	_, ok := excludes[table]
+	return ok
 }
 
 // getMigrationID produces a reproducible hash based on the input parameters.
@@ -697,7 +703,8 @@ func areTabletsAvailableToStreamFrom(ctx context.Context, req *vtctldatapb.Workf
 //
 // It returns ErrNoStreams if there are no targets found for the workflow.
 func LegacyBuildTargets(ctx context.Context, ts *topo.Server, tmc tmclient.TabletManagerClient, targetKeyspace string, workflow string,
-	targetShards []string) (*TargetInfo, error) {
+	targetShards []string,
+) (*TargetInfo, error) {
 	var (
 		frozen          bool
 		optCells        string
@@ -819,7 +826,8 @@ func addFilter(sel *sqlparser.Select, filter sqlparser.Expr) {
 }
 
 func getTenantClause(vrOptions *vtctldatapb.WorkflowOptions,
-	targetVSchema *vindexes.KeyspaceSchema, parser *sqlparser.Parser) (*sqlparser.Expr, error) {
+	targetVSchema *vindexes.KeyspaceSchema, parser *sqlparser.Parser,
+) (*sqlparser.Expr, error) {
 	if vrOptions.TenantId == "" {
 		return nil, nil
 	}
@@ -858,7 +866,8 @@ func getTenantClause(vrOptions *vtctldatapb.WorkflowOptions,
 }
 
 func changeKeyspaceRouting(ctx context.Context, ts *topo.Server, tabletTypes []topodatapb.TabletType,
-	sourceKeyspace, targetKeyspace, reason string) error {
+	sourceKeyspace, targetKeyspace, reason string,
+) error {
 	routes := make(map[string]string)
 	for _, tabletType := range tabletTypes {
 		suffix := getTabletTypeSuffix(tabletType)
@@ -1022,27 +1031,24 @@ func applyTargetShards(ts *trafficSwitcher, targetShards []string) error {
 
 // validateSourceTablesExist validates that tables provided are present
 // in the source keyspace.
-func validateSourceTablesExist(sourceKeyspace string, ksTables, tables []string) error {
+func validateSourceTablesExist(sourceKeyspace string, ksTables map[string]*tabletmanagerdatapb.TableDefinition, tables []string) error {
 	var missingTables []string
 	for _, table := range tables {
 		if schema.IsInternalOperationTableName(table) {
 			continue
 		}
-		found := false
 
-		for _, ksTable := range ksTables {
-			if table == ksTable {
-				found = true
-				break
-			}
+		if _, found := ksTables[table]; found {
+			continue
 		}
-		if !found {
-			missingTables = append(missingTables, table)
-		}
+
+		missingTables = append(missingTables, table)
 	}
+
 	if len(missingTables) > 0 {
 		return vterrors.Errorf(vtrpcpb.Code_FAILED_PRECONDITION, "table(s) not found in source keyspace %s: %s", sourceKeyspace, strings.Join(missingTables, ","))
 	}
+
 	return nil
 }
 
