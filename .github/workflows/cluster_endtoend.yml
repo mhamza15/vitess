@@ -65,12 +65,15 @@ jobs:
         id: generate
         run: |
           set -eo pipefail
-          # Use cached timing data if available, otherwise start fresh
-          if ls timing-data/*/*.json 1>/dev/null 2>&1; then
+          # Copy valid JSON timing files to a clean directory, skipping corrupted ones from incomplete uploads.
+          mkdir -p valid-timing
+          find timing-data -name '*.json' -exec sh -c 'jq empty "$1" 2>/dev/null && cp "$1" valid-timing/' _ {} \;
+          
+          if ls valid-timing/*.json 1>/dev/null 2>&1; then
             echo "Using cached timing data"
-            TIMING_FILES="timing-data/*/*.json"
+            TIMING_FILES="valid-timing/*.json"
           else
-            echo "No timing data found, using empty timing"
+            echo "No valid timing data found, using empty timing"
             echo '{}' > empty-timing.json
             TIMING_FILES="empty-timing.json"
           fi
