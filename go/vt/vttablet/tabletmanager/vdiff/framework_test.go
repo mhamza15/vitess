@@ -262,8 +262,15 @@ var vstreamRowsHook func(ctx context.Context)
 // vstreamRowsSendHook allows you to do work just before VStreamRows calls send.
 var vstreamRowsSendHook func(ctx context.Context)
 
+// vstreamRowsOverride allows tests to control streaming without depending on the vstreamer engine.
+var vstreamRowsOverride func(ctx context.Context, request *binlogdatapb.VStreamRowsRequest, send func(*binlogdatapb.VStreamRowsResponse) error) error
+
 // VStreamRows directly calls into the pre-initialized engine.
 func (ftc *fakeTabletConn) VStreamRows(ctx context.Context, request *binlogdatapb.VStreamRowsRequest, send func(*binlogdatapb.VStreamRowsResponse) error) error {
+	if vstreamRowsOverride != nil {
+		return vstreamRowsOverride(ctx, request, send)
+	}
+
 	if vstreamRowsHook != nil {
 		vstreamRowsHook(ctx)
 	}
