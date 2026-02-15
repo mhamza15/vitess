@@ -91,6 +91,11 @@ func TestWarmingReadsSkipsForUpdate(t *testing.T) {
 			query:                "SELECT * FROM users WHERE id = 1",
 			expectedWarmingQuery: "SELECT * FROM users WHERE id = 1",
 		},
+		{
+			name:                 "UNION FOR UPDATE",
+			query:                "SELECT * FROM users WHERE id = 1 UNION SELECT * FROM users WHERE id = 2 FOR UPDATE",
+			expectedWarmingQuery: "select * from users where id = 1 union select * from users where id = 2",
+		},
 	}
 
 	for _, tc := range testCases {

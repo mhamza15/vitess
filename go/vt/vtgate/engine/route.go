@@ -553,23 +553,24 @@ func (route *Route) executeWarmingReplicaRead(ctx context.Context, vcursor VCurs
 }
 
 func removeForUpdateLocks(stmt sqlparser.Statement) (string, bool) {
-	sel, ok := stmt.(*sqlparser.Select)
+	sel, ok := stmt.(sqlparser.SelectStatement)
 	if !ok {
 		return "", false
 	}
 
+	lock := sel.GetLock()
 	// Check if this is a FOR UPDATE query
-	if sel.Lock != sqlparser.ForUpdateLock &&
-		sel.Lock != sqlparser.ForUpdateLockNoWait &&
-		sel.Lock != sqlparser.ForUpdateLockSkipLocked {
+	if lock != sqlparser.ForUpdateLock &&
+		lock != sqlparser.ForUpdateLockNoWait &&
+		lock != sqlparser.ForUpdateLockSkipLocked {
 		return "", false
 	}
 
 	// Clone the statement before modifying it, since the plan is shared across executions
-	clonedSel := sqlparser.CloneRefOfSelect(sel)
+	clonedSel := sqlparser.CloneSelectStatement(sel)
 
 	// Remove the lock clause
-	clonedSel.Lock = sqlparser.NoLock
+	clonedSel.SetLock(sqlparser.NoLock)
 
 	// Convert back to SQL string
 	return sqlparser.String(clonedSel), true
