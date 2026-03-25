@@ -18,6 +18,14 @@ on:
         description: "CSV of workflow name substrings to ignore"
         required: false
         type: string
+      owner:
+        description: "Target repo owner (testing only)"
+        required: false
+        type: string
+      repo:
+        description: "Target repo name (testing only)"
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -42,8 +50,8 @@ jobs:
             const MAX_ALLOWED_FAILURES = 10;
             const MAX_PRS_TO_PROCESS = 20;
 
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const owner = '${{ inputs.owner || '' }}' || context.repo.owner;
+            const repo = '${{ inputs.repo || '' }}' || context.repo.repo;
             const inputPR = ${{ inputs.pr || 0 }};
             const inputBranch = '${{ inputs.branch || 'main' }}';
             const inputIgnore = '${{ inputs.ignore || '' }}';
