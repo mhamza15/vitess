@@ -1,0 +1,62 @@
+services:
+  mysql-2001:
+    image: vitess-bench:latest
+    command: /vt/entrypoints/mysql.sh
+    volumes:
+      - ./mysql/entrypoint.sh:/vt/entrypoints/mysql.sh:ro
+      - ./tablet/extra_my.cnf:/vt/config/extra_my.cnf:ro
+    environment:
+      TABLET_ID: "2001"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "1g"
+    security_opt:
+      - apparmor=unconfined
+    networks:
+      - bench
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /vt/vtdataroot/vt_0000002001/mysql.sock"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  tablet-2001:
+    image: vitess-bench:latest
+    command: /vt/entrypoints/tablet.sh
+    volumes:
+      - ./tablet/entrypoint.sh:/vt/entrypoints/tablet.sh:ro
+    volumes_from:
+      - mysql-2001
+    environment:
+      TABLET_ID: "2001"
+      SHARD: "80-"
+      VTTABLET_EXTRA_FLAGS: "${VTTABLET_EXTRA_FLAGS:-}"
+    depends_on:
+      mysql-2001:
+        condition: service_healthy
+      vtctld:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "1g"
+    networks:
+      - bench
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:15100/debug/vars"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  vtctld-init:
+    depends_on:
+      tablet-2001:
+        condition: service_healthy
+
+networks:
+  bench:
+    name: ${BENCH_NETWORK}
+    external: true

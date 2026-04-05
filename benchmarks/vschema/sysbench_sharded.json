@@ -1,0 +1,60 @@
+{
+  "sharded": true,
+  "vindexes": {
+    "hash": {
+      "type": "hash"
+    }
+  },
+  "tables": {
+    "sbtest1": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest2": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest3": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest4": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest5": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest6": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest7": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest8": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest9": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    },
+    "sbtest10": {
+      "column_vindexes": [
+        { "column": "id", "name": "hash" }
+      ]
+    }
+  }
+}

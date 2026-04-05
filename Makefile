@@ -313,7 +313,7 @@ define build_docker_image
 		docker buildx build --platform "$$(go env GOOS)/$$(go env GOARCH)" -f ${1} -t ${2} --build-arg bootstrap_version=${BOOTSTRAP_VERSION} .; \
 	else \
 		echo "Building docker using straight docker build"; \
-		docker build --platform=linux/amd64 -f ${1} -t ${2} --build-arg bootstrap_version=${BOOTSTRAP_VERSION} .; \
+		docker build -f ${1} -t ${2} --build-arg bootstrap_version=${BOOTSTRAP_VERSION} .; \
 	fi
 endef
 
@@ -330,6 +330,39 @@ docker_lite_all: docker_lite $(DOCKER_LITE_TARGETS)
 
 docker_lite:
 	${call build_docker_image,docker/lite/Dockerfile,vitess/lite}
+
+# Benchmarks
+# Usage:
+#   make bench BENCH=oltp                    Run the oltp benchmark
+#   make bench BENCH=oltp PROFILE=1          Run with continuous profiling (Pyroscope)
+#   make bench BENCH=tpcc KEEP=1             Run but keep cluster up after
+#   make bench BENCH=oltp MYSQL=1            Run against both Vitess and plain MySQL, compare results
+#   make bench BENCH=oltp TIME=15 WARMUP=5   Override run/warmup times (seconds)
+#   make bench BENCH=oltp THREADS=8          Override thread count
+#   make bench-build                         Build vitess-bench + sysbench images
+#   make bench-clean                         Tear down everything
+
+BENCH ?= oltp
+
+bench-build: docker_lite
+	docker build -t vitess-bench:latest -f benchmarks/vitess-bench.Dockerfile benchmarks/
+	docker build -t sysbench-bench:latest -f benchmarks/sysbench.Dockerfile benchmarks/
+
+bench: bench-build
+	$(if $(TIME),RUN_TIME=$(TIME)) $(if $(WARMUP),WARMUP_TIME=$(WARMUP)) $(if $(THREADS),THREADS=$(THREADS)) \
+	benchmarks/run.sh $(BENCH) \
+	  $(if $(NAME),--name $(NAME)) \
+	  $(if $(PROFILE),--profile) \
+	  $(if $(KEEP),--no-teardown) \
+	  $(if $(MYSQL),--mysql)
+
+bench-clean:
+	@for proj in $$(docker compose ls -q 2>/dev/null | grep '^bench-'); do \
+		docker compose -p "$$proj" down -v 2>/dev/null || true; \
+	done
+	@for net in $$(docker network ls --filter 'name=^bench-' --format '{{.Name}}' 2>/dev/null); do \
+		docker network rm "$$net" 2>/dev/null || true; \
+	done
 
 docker_mini:
 	${call build_docker_image,docker/mini/Dockerfile,vitess/mini}

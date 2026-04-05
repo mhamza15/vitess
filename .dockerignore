@@ -1,4 +1,5 @@
 /_test
+/benchmarks/
 /dist/
 /bin/
 /vtdataroot/
