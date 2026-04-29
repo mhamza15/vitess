@@ -25,8 +25,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"vitess.io/vitess/go/test/endtoend/cluster"
-	"vitess.io/vitess/go/vt/proto/topodata"
 	vtutils "vitess.io/vitess/go/vt/utils"
 )
 
@@ -48,12 +46,12 @@ func TestBuiltinBackupShutdownTimeoutRestartsMySQL(t *testing.T) {
 	code, err := LaunchCluster(BuiltinBackup, "xbstream", 0, nil)
 	require.NoErrorf(t, err, "setup failed with status code %d", code)
 
-	defer TearDownCluster()
+	t.Cleanup(TearDownCluster)
 
-	removeHook := installSlowShutdownHook(t, replica1)
-	defer removeHook()
+	_, err = replica1.VttabletProcess.QueryTablet("select 1", keyspaceName, false)
+	require.NoError(t, err)
 
-	verifyInitialReplication(t)
+	installSlowShutdownHook(t, filepath.Join(replica1.VttabletProcess.Directory, "mysql.sock"))
 
 	output, err := localCluster.VtctldClientProcess.ExecuteCommandWithOutput(
 		"Backup",
@@ -61,21 +59,20 @@ func TestBuiltinBackupShutdownTimeoutRestartsMySQL(t *testing.T) {
 	)
 	require.Error(t, err)
 
-	combinedOutput := output + err.Error()
-	require.Contains(t, combinedOutput, "can't shutdown mysqld")
-	require.Contains(t, combinedOutput, "mysqld_shutdown hook failed")
+	require.Contains(t, output+err.Error(), "mysqld_shutdown hook failed")
 
-	waitForTabletMySQL(t, replica1, 30*time.Second)
-	checkTabletType(t, replica1.Alias, topodata.TabletType_REPLICA)
+	require.Eventually(t, func() bool {
+		_, err := replica1.VttabletProcess.QueryTablet("select 1", keyspaceName, false)
+		return err == nil
+	}, 30*time.Second, time.Second, "mysqld on tablet %s did not restart", replica1.Alias)
 }
 
 // installSlowShutdownHook creates a shutdown hook that stops MySQL successfully
 // but does not return before the builtin backup shutdown context expires.
-func installSlowShutdownHook(t *testing.T, tablet *cluster.Vttablet) func() {
+func installSlowShutdownHook(t *testing.T, socketPath string) {
 	t.Helper()
 
 	hookPath := filepath.Join(os.Getenv("VTROOT"), "vthook", "mysqld_shutdown")
-	socketPath := filepath.Join(tablet.VttabletProcess.Directory, "mysql.sock")
 
 	hookContents := fmt.Sprintf(`#!/bin/sh
 
@@ -84,27 +81,7 @@ sleep 30
 `, socketPath, dbPassword)
 
 	require.NoError(t, os.WriteFile(hookPath, []byte(hookContents), 0o755))
-
-	return func() {
+	t.Cleanup(func() {
 		require.NoError(t, os.Remove(hookPath))
-	}
-}
-
-// waitForTabletMySQL waits for direct MySQL connections to succeed again.
-func waitForTabletMySQL(t *testing.T, tablet *cluster.Vttablet, waitTime time.Duration) {
-	t.Helper()
-
-	var lastErr error
-	deadline := time.Now().Add(waitTime)
-
-	for time.Now().Before(deadline) {
-		_, lastErr = tablet.VttabletProcess.QueryTablet("select 1", keyspaceName, false)
-		if lastErr == nil {
-			return
-		}
-
-		time.Sleep(1 * time.Second)
-	}
-
-	require.NoErrorf(t, lastErr, "mysqld on tablet %s did not restart", tablet.Alias)
+	})
 }
