@@ -46,7 +46,7 @@ export REWRITER=go/vt/sqlparser/rewriter.go
 # Since we are not using this Makefile for compilation, limiting parallelism will not increase build time.
 .NOTPARALLEL:
 
-.PHONY: all build install test clean unit_test unit_test_cover unit_test_race integration_test proto proto_banner site_test site_integration_test docker_bootstrap docker_test docker_unit_test java_test reshard_tests e2e_test e2e_test_race lint lint-fix minimaltools tools generate-flag-testdata
+.PHONY: all build install test clean unit_test unit_test_cover unit_test_race integration_test proto proto_banner site_test site_integration_test docker_bootstrap docker_test docker_unit_test java_test reshard_tests e2e_test e2e_test_race lint lint-fix minimaltools tools generate-flag-testdata vitesst_build
 
 all: build
 
@@ -395,3 +395,8 @@ generate-flag-testdata:
 
 install_kubectl_kind:
 	./tools/get_kubectl_kind.sh
+
+# Builds vitesst images used for testcontainers-based end-to-end tests.
+vitesst_build:
+	$(MAKE) cross-install GOOS=linux GOARCH=amd64 PREFIX=$(VTROOT)/.vitesst_install
+	docker buildx bake -f go/test/vitesst/docker-bake.hcl
