@@ -276,6 +276,10 @@ func TestCanonicalOutput(t *testing.T) {
 			"select 1 from t1 into outfile 'test/t1.txt'",
 			"SELECT 1 FROM `t1` INTO OUTFILE 'test/t1.txt'",
 		},
+		{
+			"alter vitess_migration cancel context 'ProdCtx'",
+			"ALTER VITESS_MIGRATION cancel CONTEXT 'ProdCtx'",
+		},
 	}
 
 	parser := NewTestParser()
