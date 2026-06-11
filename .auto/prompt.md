@@ -43,7 +43,9 @@ MySQL number is a fixed target — no need to re-run it every iteration).
   (query engine, connection pools) → mysqld.
 
 ## Files in Scope
-Vitess Go source, especially the per-query hot path:
+**The entire Vitess repository is in scope** — any file may be modified (except
+the Off Limits items below). The per-query hot path is the most promising
+starting point:
 - `go/vt/vtgate/` — Executor, plan cache, scatter_conn, session handling
 - `go/vt/vtgate/engine/` — plan execution primitives
 - `go/vt/vtgate/planbuilder/`, `go/vt/sqlparser/` — parsing/planning (cached plans should make this cold; verify in profiles)
@@ -68,9 +70,12 @@ Vitess Go source, especially the per-query hot path:
   acceptable but note it separately from code wins
 
 ## Baselines
-(filled in by the first experiment)
-- Vitess oltp: TBD
-- MySQL oltp: TBD
+From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
+- Vitess oltp: qps=4966.02, tps=248.31, p95_ms=4.74
+- MySQL oltp:  qps=46805.10, tps=2340.26, p95_ms=0.50
+- Gap: Vitess is at ~10.6% of MySQL throughput; p95 is ~9.5x worse.
+  Single-threaded sysbench → pure latency problem: ~4.3ms of overhead per
+  transaction (20 queries) added by the vtgate→vttablet→mysqld path.
 
 ## What's Been Tried
 (nothing yet)
