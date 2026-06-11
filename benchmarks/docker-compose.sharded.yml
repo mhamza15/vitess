@@ -33,6 +33,8 @@ services:
       TABLET_ID: "2001"
       SHARD: "80-"
       VTTABLET_EXTRA_FLAGS: "${VTTABLET_EXTRA_FLAGS:-}"
+      GOGC: "off"
+      GOMEMLIMIT: "1GiB"
     depends_on:
       mysql-2001:
         condition: service_healthy
