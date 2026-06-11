@@ -29,6 +29,21 @@ benchmarks:
       warmup_time: 20
       run_time: 60
 
+  oltp-writeonly:
+    vitess:
+      sharded: true
+      vschema: sysbench_sharded.json
+      vtgate_workload_mode: ""
+    sysbench:
+      workload: oltp_write_only
+      tables: 10
+      table_size: 10000
+      threads: 1
+      extra: "--auto-inc=off"
+      working_dir: ""
+      warmup_time: 20
+      run_time: 60
+
   olap:
     vitess:
       sharded: true
