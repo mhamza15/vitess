@@ -265,6 +265,17 @@ func (conn *gRPCQueryClient) Commit(ctx context.Context, target *querypb.Target,
 		ImmediateCallerId: callerid.ImmediateCallerIDFromContext(ctx),
 		TransactionId:     transactionID,
 	}
+	if conn.fast != nil && !conn.fastDisabled.Load() {
+		resp, err, ok := conn.fast.Commit(ctx, req)
+		if ok {
+			if err != nil {
+				return 0, tabletconn.ErrorFromGRPC(err)
+			}
+			return resp.ReservedId, nil
+		}
+		conn.fastDisabled.Store(true)
+	}
+
 	resp, err := conn.c.Commit(ctx, req)
 	if err != nil {
 		return 0, tabletconn.ErrorFromGRPC(err)
@@ -512,9 +523,23 @@ func (conn *gRPCQueryClient) BeginExecute(ctx context.Context, _ queryservice.Se
 		ReservedId: reservedID,
 		Options:    options,
 	}
-	reply, err := conn.c.BeginExecute(ctx, req)
-	if err != nil {
-		return state, nil, tabletconn.ErrorFromGRPC(err)
+	var reply *querypb.BeginExecuteResponse
+	if conn.fast != nil && !conn.fastDisabled.Load() {
+		var fastErr error
+		var ok bool
+		reply, fastErr, ok = conn.fast.BeginExecute(ctx, req)
+		if !ok {
+			conn.fastDisabled.Store(true)
+			reply = nil
+		} else if fastErr != nil {
+			return state, nil, tabletconn.ErrorFromGRPC(fastErr)
+		}
+	}
+	if reply == nil {
+		reply, err = conn.c.BeginExecute(ctx, req)
+		if err != nil {
+			return state, nil, tabletconn.ErrorFromGRPC(err)
+		}
 	}
 	state.TransactionID = reply.TransactionId
 	state.TabletAlias = conn.tablet.Alias

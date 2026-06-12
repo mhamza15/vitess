@@ -58,37 +58,37 @@ func (fc *Conn) close() {
 	fc.c.Close()
 }
 
-// execute performs one Execute round trip. On transport errors the
-// connection is no longer usable and ok is false.
-func (fc *Conn) execute(req *querypb.ExecuteRequest) (resp *querypb.ExecuteResponse, appErr error, ok bool) {
-	out, err := appendFrame(fc.writeBuf, MethodExecute, req)
+// call performs one request/response round trip, unmarshalling a
+// statusOK payload into resp. On transport errors the connection is no
+// longer usable and ok is false.
+func (fc *Conn) call(method byte, req vtMarshaler, resp vtUnmarshaler) (appErr error, ok bool) {
+	out, err := appendFrame(fc.writeBuf, method, req)
 	if err != nil {
-		return nil, err, false
+		return err, false
 	}
 	fc.writeBuf = out
 	if _, err := fc.c.Write(out); err != nil {
-		return nil, err, false
+		return err, false
 	}
 	tag, payload, err := readFrame(fc.r, fc.readBuf)
 	if err != nil {
-		return nil, err, false
+		return err, false
 	}
 	fc.readBuf = payload
 	switch tag {
 	case statusOK:
-		resp = &querypb.ExecuteResponse{}
 		if err := resp.UnmarshalVT(payload); err != nil {
-			return nil, err, false
+			return err, false
 		}
-		return resp, nil, true
+		return nil, true
 	case statusAppError:
 		rpcErr := &vtrpcpb.RPCError{}
 		if err := rpcErr.UnmarshalVT(payload); err != nil {
-			return nil, err, false
+			return err, false
 		}
-		return nil, tabletconn.ErrorFromVTRPC(rpcErr), true
+		return tabletconn.ErrorFromVTRPC(rpcErr), true
 	default:
-		return nil, status.Error(codes.Internal, "fastquery: unknown response status"), false
+		return status.Error(codes.Internal, "fastquery: unknown response status"), false
 	}
 }
 
@@ -142,21 +142,22 @@ func (p *Pool) Close() {
 	}
 }
 
-// Execute performs one Execute round trip using a pooled connection.
-// The error is translated exactly like a unary grpc call error. The
-// returned bool is false when the transport is unavailable (dial
-// failure) and the caller should fall back to grpc permanently.
-func (p *Pool) Execute(ctx context.Context, req *querypb.ExecuteRequest) (*querypb.ExecuteResponse, error, bool) {
+// Call performs one round trip using a pooled connection, decoding a
+// success payload into resp. The error is translated exactly like a
+// unary grpc call error. The returned bool is false when the transport
+// is unavailable (dial failure) and the caller should fall back to
+// grpc permanently.
+func (p *Pool) Call(ctx context.Context, method byte, req vtMarshaler, resp vtUnmarshaler) (error, bool) {
 	fc, err := p.get()
 	if err != nil {
-		return nil, err, false
+		return err, false
 	}
 
 	// Tear down the connection if the caller's context fires mid-call:
 	// closing unblocks the pending read.
 	stop := context.AfterFunc(ctx, fc.close)
 
-	resp, appErr, connOK := fc.execute(req)
+	appErr, connOK := fc.call(method, req, resp)
 
 	reusable := stop() && connOK
 	if !connOK {
@@ -165,16 +166,47 @@ func (p *Pool) Execute(ctx context.Context, req *querypb.ExecuteRequest) (*query
 			// The caller's context fired and tore down the conn;
 			// report the caller's deadline/cancellation instead of
 			// the teardown artifact.
-			return nil, status.FromContextError(ctxErr).Err(), true
+			return status.FromContextError(ctxErr).Err(), true
 		}
 		// Transport failure mid-call: surface as UNAVAILABLE so the
 		// gateway retry logic treats it like a broken grpc conn.
-		return nil, status.Error(codes.Unavailable, appErr.Error()), true
+		return status.Error(codes.Unavailable, appErr.Error()), true
 	}
 	if reusable {
 		p.put(fc)
 	} else {
 		fc.close()
 	}
-	return resp, appErr, true
+	return appErr, true
+}
+
+// Execute performs one Execute round trip using a pooled connection.
+func (p *Pool) Execute(ctx context.Context, req *querypb.ExecuteRequest) (*querypb.ExecuteResponse, error, bool) {
+	resp := &querypb.ExecuteResponse{}
+	err, ok := p.Call(ctx, MethodExecute, req, resp)
+	if err != nil {
+		return nil, err, ok
+	}
+	return resp, nil, ok
+}
+
+// BeginExecute performs one BeginExecute round trip using a pooled
+// connection.
+func (p *Pool) BeginExecute(ctx context.Context, req *querypb.BeginExecuteRequest) (*querypb.BeginExecuteResponse, error, bool) {
+	resp := &querypb.BeginExecuteResponse{}
+	err, ok := p.Call(ctx, MethodBeginExecute, req, resp)
+	if err != nil {
+		return nil, err, ok
+	}
+	return resp, nil, ok
+}
+
+// Commit performs one Commit round trip using a pooled connection.
+func (p *Pool) Commit(ctx context.Context, req *querypb.CommitRequest) (*querypb.CommitResponse, error, bool) {
+	resp := &querypb.CommitResponse{}
+	err, ok := p.Call(ctx, MethodCommit, req, resp)
+	if err != nil {
+		return nil, err, ok
+	}
+	return resp, nil, ok
 }

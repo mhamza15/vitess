@@ -59,18 +59,34 @@ func serveConn(c net.Conn, qs queryservice.QueryService) {
 		}
 		readBuf = payload
 
-		if tag != MethodExecute {
+		var response vtMarshaler
+		var appErr error
+		switch tag {
+		case MethodExecute:
+			request := &querypb.ExecuteRequest{}
+			if err := request.UnmarshalVT(payload); err != nil {
+				log.Warn("fastquery: failed to unmarshal request, closing connection", slog.Any("error", err))
+				return
+			}
+			response, appErr = execute(context.Background(), qs, request)
+		case MethodBeginExecute:
+			request := &querypb.BeginExecuteRequest{}
+			if err := request.UnmarshalVT(payload); err != nil {
+				log.Warn("fastquery: failed to unmarshal request, closing connection", slog.Any("error", err))
+				return
+			}
+			response, appErr = beginExecute(context.Background(), qs, request)
+		case MethodCommit:
+			request := &querypb.CommitRequest{}
+			if err := request.UnmarshalVT(payload); err != nil {
+				log.Warn("fastquery: failed to unmarshal request, closing connection", slog.Any("error", err))
+				return
+			}
+			response, appErr = commit(context.Background(), qs, request)
+		default:
 			log.Warn("fastquery: unknown method tag, closing connection", slog.Int("tag", int(tag)))
 			return
 		}
-
-		request := &querypb.ExecuteRequest{}
-		if err := request.UnmarshalVT(payload); err != nil {
-			log.Warn("fastquery: failed to unmarshal request, closing connection", slog.Any("error", err))
-			return
-		}
-
-		response, appErr := execute(context.Background(), qs, request)
 
 		var out []byte
 		if appErr != nil {
@@ -88,6 +104,45 @@ func serveConn(c net.Conn, qs queryservice.QueryService) {
 			return
 		}
 	}
+}
+
+func beginExecute(ctx context.Context, qs queryservice.QueryService, request *querypb.BeginExecuteRequest) (response *querypb.BeginExecuteResponse, err error) {
+	defer qs.HandlePanic(&err)
+	ctx = callerid.NewContext(ctx,
+		request.EffectiveCallerId,
+		request.ImmediateCallerId,
+	)
+	state, result, err := qs.BeginExecute(ctx, nil, request.Target, request.PreQueries, request.Query.Sql, request.Query.BindVariables, request.ReservedId, request.Options)
+	if err != nil {
+		// If we have a valid transactionID, return the error in-band.
+		if state.TransactionID != 0 {
+			return &querypb.BeginExecuteResponse{
+				Error:         vterrors.ToVTRPC(err),
+				TransactionId: state.TransactionID,
+				TabletAlias:   state.TabletAlias,
+			}, nil
+		}
+		return nil, err
+	}
+	return &querypb.BeginExecuteResponse{
+		Result:              sqltypes.ResultToProto3(result),
+		TransactionId:       state.TransactionID,
+		TabletAlias:         state.TabletAlias,
+		SessionStateChanges: state.SessionStateChanges,
+	}, nil
+}
+
+func commit(ctx context.Context, qs queryservice.QueryService, request *querypb.CommitRequest) (response *querypb.CommitResponse, err error) {
+	defer qs.HandlePanic(&err)
+	ctx = callerid.NewContext(ctx,
+		request.EffectiveCallerId,
+		request.ImmediateCallerId,
+	)
+	rID, err := qs.Commit(ctx, request.Target, request.TransactionId)
+	if err != nil {
+		return nil, err
+	}
+	return &querypb.CommitResponse{ReservedId: rID}, nil
 }
 
 func execute(ctx context.Context, qs queryservice.QueryService, request *querypb.ExecuteRequest) (response *querypb.ExecuteResponse, err error) {

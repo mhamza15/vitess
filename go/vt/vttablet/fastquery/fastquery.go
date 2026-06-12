@@ -47,6 +47,10 @@ import (
 const (
 	// MethodExecute identifies an Execute request frame.
 	MethodExecute = byte(1)
+	// MethodBeginExecute identifies a BeginExecute request frame.
+	MethodBeginExecute = byte(2)
+	// MethodCommit identifies a Commit request frame.
+	MethodCommit = byte(3)
 
 	statusOK       = byte(0)
 	statusAppError = byte(1)
