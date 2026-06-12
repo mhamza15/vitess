@@ -127,6 +127,19 @@ From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
 - **#14 parallel multi-shard commit retry**: flat (8295). DISCARDED. Goroutine
   spawn (~15µs) on GOMAXPROCS=2 cancels parallelism for sub-100µs work —
   pipeline on one goroutine instead (ideas.md).
+- **#16 BEGIN pipelining** (defer begin, pipeline ahead of first statement via
+  two COM_QUERYs): dead even under noisy host (~2% expected, below detection).
+  DISCARDED. Protocol pipelining works (reset c.sequence=1 between responses);
+  begin round trip is cheaper than modeled. Retest on quiet host.
+- **#17 connectrpc evaluation** (user-requested): **−49%** (3735 vs 7357 paired).
+  DISCARDED. 29% of vtgate CPU in connect.CallUnary — net/http per-request
+  floor (header parse, persistConn handoffs) is structurally unsuited for the
+  per-query hop. Fine for management RPCs only.
+
+## Measurement discipline (updated 2026-06-12)
+- **Never compare absolute qps across days/sessions**: host load shifts the
+  baseline (8300 last night == ~7357 under load-6 morning). Always run paired
+  A/B controls in the same session, alternating clusters.
 
 ## Final verification (2026-06-11 22:35)
 - Full MYSQL=1 A/B on HEAD: **Vitess 8294 qps / p95 2.86ms vs MySQL 46894 /
