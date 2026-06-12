@@ -117,9 +117,29 @@ From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
 - **#10 fastquery BeginExecute+Commit**: **+15.8%** (8303, p95 2.91). KEPT.
   Lesson: relative weights shift as you optimize — revisit discarded ideas.
 
-## Current state (2026-06-11 21:26)
-- 8303 qps / 415 tps / p95 2.91ms — cumulative +67% from 4966 baseline.
-- MySQL target: 46805 qps. Per-client-query budget now ~120µs (was 200µs).
-- Hot-path transport is fastquery (raw TCP) for Execute/BeginExecute/Commit;
-  everything else still grpc. Caveats: no TLS/auth on fastquery, ctx deadline
-  not propagated to tablet, server uses context.Background() per request.
+- **#11 custom Result wire codec in fastquery**: flat qps (8260), −12% allocs,
+  strictly simpler data flow. KEPT — stepping stone to row pass-through.
+- **#12 GOGC=800**: +1% within noise + OOM risk without memlimit. DISCARDED.
+- **#13 bounded spin-read in fastquery client**: **−13%** (7155). DISCARDED.
+  Critical learning: in containers syscalls are the expensive unit — spinning
+  with non-blocking reads burns 20-50 syscalls to avoid one ~15µs wakeup.
+  Attack wakeups by REMOVING blocking points (pipelining), not cheaper waiting.
+- **#14 parallel multi-shard commit retry**: flat (8295). DISCARDED. Goroutine
+  spawn (~15µs) on GOMAXPROCS=2 cancels parallelism for sub-100µs work —
+  pipeline on one goroutine instead (ideas.md).
+
+## Current state (2026-06-11 22:15)
+- **8300 qps / 415 tps / p95 2.86ms — cumulative +67% from 4966 baseline.**
+- MySQL target: 46805 qps (structurally unreachable with 2 network hops, but
+  large headroom remains).
+- Per-client-query wall budget (~120µs, measured via /debug/vars KEEP=1 run):
+  ~18µs vtgate front+executor CPU, ~46µs vtgate↔tablet transport gap
+  (wire ~10µs idle + 2 wakeups + marshal), ~3µs tablet engine,
+  ~53µs tablet↔mysqld (raw ~24µs + ~29µs busy-process wakeup tax).
+- Hot-path transport is fastquery (raw TCP, custom Result codec) for
+  Execute/BeginExecute/Commit; everything else still grpc. Caveats: no
+  TLS/auth on fastquery, ctx deadline not propagated to tablet, server uses
+  context.Background() per request.
+- Remaining single wins are mostly 2-5% — at/below the cluster noise floor.
+  See .auto/ideas.md for the ranked backlog; batch small items or use
+  multiple clusters per side to detect.
