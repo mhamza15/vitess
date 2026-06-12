@@ -528,5 +528,7 @@ func (q *query) GetSchema(request *querypb.GetSchemaRequest, stream queryservice
 
 // Register registers the implementation on the provide gRPC Server.
 func Register(s *grpc.Server, server queryservice.QueryService) {
-	queryservicepb.RegisterQueryServer(s, &query{server: server})
+	q := &query{server: server}
+	queryservicepb.RegisterQueryServer(s, q)
+	s.RegisterService(&executePipeServiceDesc, q)
 }

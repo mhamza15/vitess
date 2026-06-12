@@ -79,6 +79,9 @@ type gRPCQueryClient struct {
 	mu sync.RWMutex
 	cc *grpc.ClientConn
 	c  queryservicepb.QueryClient
+
+	// pipes pools long-lived ExecutePipe streams.
+	pipes pipePool
 }
 
 var _ queryservice.QueryService = (*gRPCQueryClient)(nil)
@@ -131,7 +134,7 @@ func (conn *gRPCQueryClient) Execute(ctx context.Context, _ queryservice.Session
 		Options:       options,
 		ReservedId:    reservedID,
 	}
-	er, err := conn.c.Execute(ctx, req)
+	er, err := conn.executePipe(ctx, req)
 	if err != nil {
 		return nil, tabletconn.ErrorFromGRPC(err)
 	}
@@ -1210,6 +1213,7 @@ func (conn *gRPCQueryClient) Close(ctx context.Context) error {
 
 	cc := conn.cc
 	conn.cc = nil
+	conn.pipes.close()
 	return cc.Close()
 }
 
