@@ -15,7 +15,8 @@ highest-ROI optimization targets.
 
 ## How to Run
 `./.auto/measure.sh` — builds the vitess-bench docker image from the working
-tree, runs `make bench BENCH=oltp PROFILE=1`, and prints:
+tree, runs `make bench BENCH=oltp PROFILE=1` with `BENCH_REPEAT=3` (sysbench
+run-phase executed 3x in one cluster, prepare once), reports the MEDIAN, and prints:
 - `RUN_DIR benchmarks/runs/oltp/<id>` — contains `vitess.txt` and exported
   `.pprof` files (vtgate + tablet-1001 + tablet-2001: cpu, heap, mutex, block, goroutine)
 - `METRIC qps=...`, `METRIC tps=...`, `METRIC p95_ms=...`
@@ -61,6 +62,9 @@ starting point:
 - Anything that breaks correctness: sysbench oltp_read_write must complete without errors
 
 ## Constraints
+- **Backwards compatibility does not matter.** Changing commit order, removing
+  compatibility wrappers, altering public APIs/semantics is all allowed if it
+  makes the hot path faster (user directive 2026-06-11).
 - `git checkout` of sysbench results: a run with sysbench errors (non-zero
   ignored errors / failed queries) must be discarded even if QPS improved
 - Code must compile (`go build ./go/...`); measure.sh pre-checks vtgate/vttablet
@@ -77,5 +81,29 @@ From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
   Single-threaded sysbench → pure latency problem: ~4.3ms of overhead per
   transaction (20 queries) added by the vtgate→vttablet→mysqld path.
 
+## Measurement Noise
+- Within-cluster sample spread: ~1% (3 repeats in one cluster are tight)
+- Cluster-to-cluster spread: ±4-5% — the dominant noise source. Single-run
+  comparisons across clusters cannot detect <10% effects. Always use the
+  3-sample median; for borderline results, re-run the full cluster.
+
+## Latency Budget (measured 2026-06-11, per query ~200µs end-to-end)
+- vtgate mysql-protocol front + executor: ~30µs (parse+normalize ~8µs; VtgateApi mean 173µs)
+- grpc hop vtgate→tablet: ~95µs (TCP RTT floor 30-45µs, rest is grpc-go + scheduler wakeups)
+- vttablet engine: ~3µs
+- vttablet→mysqld Go client layer: ~40µs gap (64µs observed under load vs 12.6µs
+  for the same go/mysql client in an idle process — it's scheduler/wakeup tax, not client code)
+- raw mysqld (unix socket): point=10µs, ranges=20-84µs, update=11µs
+- Per-query CPU is ON the critical path (single-threaded): vtgate ~65-70µs CPU/query,
+  tablet ~40µs — cutting CPU cuts latency ~1:1
+- No CFS throttling under normal load (nr_throttled=0)
+
 ## What's Been Tried
-(nothing yet)
+- **#2 parallel multi-shard commit** (tx_conn.go): no gain (4977/4898 vs ~5016 vanilla).
+  Goroutine spawn+handoff on 2-P runtime eats the saved serial RTT. DISCARDED.
+- **#3 scheduler busy-spin goroutine** (VT_SCHED_SPIN): 8x WORSE (662 qps, p95 42ms).
+  Busy-spin exhausts CFS quota → ms-scale throttling. NEVER busy-spin under cpu limits. DISCARDED.
+- **#4 diagnostic**: go/mysql client = 12.6µs idle-process vs 64µs in busy vttablet →
+  overhead is environmental (wakeups), not algorithmic.
+- **#5 grpc.NumStreamWorkers(GOMAXPROCS)** on servenv grpc server: **+6.8% qps**
+  (5288 vs 4953 median-of-3 A/B), p95 4.65→4.33. KEPT.

@@ -409,6 +409,17 @@ echo "=== Running Vitess benchmark ==="
 run_sysbench_all "$RUN_DIR/vitess.txt"
 parse_sysbench_output "$RUN_DIR/vitess.txt" "$RUN_DIR/vitess.json"
 
+# Optionally repeat the run phase (data already prepared) for extra samples.
+BENCH_REPEAT="${BENCH_REPEAT:-1}"
+for ((rep = 2; rep <= BENCH_REPEAT; rep++)); do
+  echo "=== Running Vitess benchmark (repeat $rep/$BENCH_REPEAT) ==="
+  set +e
+  docker compose --project-directory "$BENCHMARKS_DIR" "${COMPOSE_ARGS[@]}" -p "$PROJECT" \
+    run --quiet --rm sysbench run 2>&1 | tee "$RUN_DIR/vitess$rep.txt"
+  set -e
+  parse_sysbench_output "$RUN_DIR/vitess$rep.txt" "$RUN_DIR/vitess$rep.json"
+done
+
 if [ "$PROFILE" = "true" ]; then
   export_profiles_from_pyroscope
 fi
