@@ -107,3 +107,19 @@ From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
   overhead is environmental (wakeups), not algorithmic.
 - **#5 grpc.NumStreamWorkers(GOMAXPROCS)** on servenv grpc server: **+6.8% qps**
   (5288 vs 4953 median-of-3 A/B), p95 4.65→4.33. KEPT.
+- **#6 GOGC=200, drop GOMEMLIMIT** (was GOGC=off): **+2.5%** (5424). KEPT (compose env).
+- **#7 grpc bidi-stream Execute pipe** (queryservice.QueryPipe): **+5.9%** (5747),
+  p95 4.03. KEPT — now mostly superseded by fastquery but remains the grpc fallback.
+- **#8 pipe for BeginExecute/Commit**: dead even at the time. DISCARDED — but see #10.
+- **#9 fastquery raw TCP transport for Execute** (VT_FASTQUERY, port=grpc+1):
+  **+17-25%** (7167/6344). Raw TCP echo floor between containers is 5-12µs vs grpc
+  hop ~95µs; kills HTTP/2 framing + all goroutine handoffs. KEPT.
+- **#10 fastquery BeginExecute+Commit**: **+15.8%** (8303, p95 2.91). KEPT.
+  Lesson: relative weights shift as you optimize — revisit discarded ideas.
+
+## Current state (2026-06-11 21:26)
+- 8303 qps / 415 tps / p95 2.91ms — cumulative +67% from 4966 baseline.
+- MySQL target: 46805 qps. Per-client-query budget now ~120µs (was 200µs).
+- Hot-path transport is fastquery (raw TCP) for Execute/BeginExecute/Commit;
+  everything else still grpc. Caveats: no TLS/auth on fastquery, ctx deadline
+  not propagated to tablet, server uses context.Background() per request.

@@ -54,6 +54,9 @@ const (
 
 	statusOK       = byte(0)
 	statusAppError = byte(1)
+	// statusResult marks a payload encoded with the custom
+	// sqltypes.Result codec (resultcodec.go) instead of proto.
+	statusResult = byte(2)
 
 	headerSize = 5
 

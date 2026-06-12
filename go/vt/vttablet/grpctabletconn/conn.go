@@ -150,12 +150,12 @@ func (conn *gRPCQueryClient) Execute(ctx context.Context, _ queryservice.Session
 		ReservedId:    reservedID,
 	}
 	if conn.fast != nil && !conn.fastDisabled.Load() {
-		er, err, ok := conn.fast.Execute(ctx, req)
+		result, err, ok := conn.fast.Execute(ctx, req)
 		if ok {
 			if err != nil {
 				return nil, tabletconn.ErrorFromGRPC(err)
 			}
-			return sqltypes.Proto3ToResult(er.Result), nil
+			return result, nil
 		}
 		// Transport unavailable: permanent grpc fallback.
 		conn.fastDisabled.Store(true)

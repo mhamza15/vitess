@@ -69,13 +69,62 @@ func TestExecuteRoundTrip(t *testing.T) {
 	})
 
 	for range 3 {
-		resp, appErr, ok := pool.Execute(t.Context(), &querypb.ExecuteRequest{
+		got, appErr, ok := pool.Execute(t.Context(), &querypb.ExecuteRequest{
 			Query: &querypb.BoundQuery{Sql: "select 1"},
 		})
 		require.True(t, ok)
 		require.NoError(t, appErr)
-		got := sqltypes.Proto3ToResult(resp.Result)
 		assert.Equal(t, want.Rows, got.Rows)
+		require.Len(t, got.Fields, len(want.Fields))
+		for i, f := range want.Fields {
+			assert.Equal(t, f.Name, got.Fields[i].Name)
+			assert.Equal(t, f.Type, got.Fields[i].Type)
+		}
+	}
+}
+
+func TestResultCodecRoundTrip(t *testing.T) {
+	cases := []*sqltypes.Result{
+		{},
+		{RowsAffected: 7, InsertID: 42, InsertIDChanged: true, StatusFlags: 3, Info: "info", SessionStateChanges: "ssc"},
+		sqltypes.MakeTestResult(
+			sqltypes.MakeTestFields("id|val|opt", "int64|varchar|varchar"),
+			"1|abc|null",
+			"2||def",
+			"3|x|",
+		),
+	}
+	for _, want := range cases {
+		buf, err := appendResult(nil, want)
+		require.NoError(t, err)
+		got, err := decodeResult(buf)
+		require.NoError(t, err)
+
+		// Compare against what the proto path would deliver.
+		viaProto := sqltypes.Proto3ToResult(sqltypes.ResultToProto3(want))
+		if viaProto.Rows != nil || got.Rows != nil {
+			assert.Equal(t, viaProto.Rows, got.Rows)
+		}
+		assert.Equal(t, viaProto.RowsAffected, got.RowsAffected)
+		assert.Equal(t, viaProto.InsertID, got.InsertID)
+		assert.Equal(t, viaProto.InsertIDChanged, got.InsertIDChanged)
+		assert.Equal(t, viaProto.Info, got.Info)
+		assert.Equal(t, viaProto.SessionStateChanges, got.SessionStateChanges)
+		assert.Equal(t, want.StatusFlags, got.StatusFlags)
+		assert.Len(t, got.Fields, len(want.Fields))
+	}
+}
+
+func TestResultCodecMalformed(t *testing.T) {
+	_, err := decodeResult([]byte{1, 2, 3})
+	assert.ErrorContains(t, err, "malformed")
+
+	buf, err := appendResult(nil, sqltypes.MakeTestResult(
+		sqltypes.MakeTestFields("id", "int64"), "1"))
+	require.NoError(t, err)
+	for i := range buf {
+		// Truncations must error, never panic.
+		_, _ = decodeResult(buf[:i])
 	}
 }
 

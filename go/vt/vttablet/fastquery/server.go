@@ -19,6 +19,7 @@ package fastquery
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"log/slog"
 	"net"
 
@@ -60,6 +61,7 @@ func serveConn(c net.Conn, qs queryservice.QueryService) {
 		readBuf = payload
 
 		var response vtMarshaler
+		var resultResponse *sqltypes.Result
 		var appErr error
 		switch tag {
 		case MethodExecute:
@@ -68,7 +70,7 @@ func serveConn(c net.Conn, qs queryservice.QueryService) {
 				log.Warn("fastquery: failed to unmarshal request, closing connection", slog.Any("error", err))
 				return
 			}
-			response, appErr = execute(context.Background(), qs, request)
+			resultResponse, appErr = execute(context.Background(), qs, request)
 		case MethodBeginExecute:
 			request := &querypb.BeginExecuteRequest{}
 			if err := request.UnmarshalVT(payload); err != nil {
@@ -89,9 +91,12 @@ func serveConn(c net.Conn, qs queryservice.QueryService) {
 		}
 
 		var out []byte
-		if appErr != nil {
+		switch {
+		case appErr != nil:
 			out, err = appendFrame(writeBuf, statusAppError, vterrors.ToVTRPC(appErr))
-		} else {
+		case resultResponse != nil:
+			out, err = appendResultFrame(writeBuf, resultResponse)
+		default:
 			out, err = appendFrame(writeBuf, statusOK, response)
 		}
 		if err != nil {
@@ -145,17 +150,23 @@ func commit(ctx context.Context, qs queryservice.QueryService, request *querypb.
 	return &querypb.CommitResponse{ReservedId: rID}, nil
 }
 
-func execute(ctx context.Context, qs queryservice.QueryService, request *querypb.ExecuteRequest) (response *querypb.ExecuteResponse, err error) {
+func execute(ctx context.Context, qs queryservice.QueryService, request *querypb.ExecuteRequest) (result *sqltypes.Result, err error) {
 	defer qs.HandlePanic(&err)
 	ctx = callerid.NewContext(ctx,
 		request.EffectiveCallerId,
 		request.ImmediateCallerId,
 	)
-	result, err := qs.Execute(ctx, nil, request.Target, request.Query.Sql, request.Query.BindVariables, request.TransactionId, request.ReservedId, request.Options)
+	return qs.Execute(ctx, nil, request.Target, request.Query.Sql, request.Query.BindVariables, request.TransactionId, request.ReservedId, request.Options)
+}
+
+// appendResultFrame builds a [statusResult][len][custom result payload]
+// frame, encoding directly into the frame buffer.
+func appendResultFrame(buf []byte, result *sqltypes.Result) ([]byte, error) {
+	buf = append(buf[:0], statusResult, 0, 0, 0, 0)
+	buf, err := appendResult(buf, result)
 	if err != nil {
 		return nil, err
 	}
-	return &querypb.ExecuteResponse{
-		Result: sqltypes.ResultToProto3(result),
-	}, nil
+	binary.BigEndian.PutUint32(buf[1:headerSize], uint32(len(buf)-headerSize))
+	return buf, nil
 }
