@@ -73,8 +73,8 @@ services:
       TABLET_ID: "1001"
       SHARD: "${SHARD_1001}"
       VTTABLET_EXTRA_FLAGS: "${VTTABLET_EXTRA_FLAGS:-}"
-      GOGC: "off"
-      GOMEMLIMIT: "1GiB"
+      GOGC: "200"
+
     depends_on:
       mysql-1001:
         condition: service_healthy
@@ -101,8 +101,8 @@ services:
     environment:
       VTGATE_WORKLOAD_MODE: "${VTGATE_WORKLOAD_MODE:-}"
       VTGATE_MAX_MEMORY_ROWS: "${VTGATE_MAX_MEMORY_ROWS:-}"
-      GOGC: "off"
-      GOMEMLIMIT: "1GiB"
+      GOGC: "200"
+
     depends_on:
       vtctld-init:
         condition: service_completed_successfully
