@@ -128,6 +128,14 @@ From `runs/oltp/20260611-184816-auto-baseline` (PROFILE=1, MYSQL=1):
   spawn (~15µs) on GOMAXPROCS=2 cancels parallelism for sub-100µs work —
   pipeline on one goroutine instead (ideas.md).
 
+## Final verification (2026-06-11 22:35)
+- Full MYSQL=1 A/B on HEAD: **Vitess 8294 qps / p95 2.86ms vs MySQL 46894 /
+  0.50ms → −82.3% (baseline was −89.4%)**. MySQL number stable across the
+  session, so all gains are real. 0 sysbench errors throughout.
+- Resume here: read this file + .auto/ideas.md + git log; top backlog items are
+  the query-fingerprint fast-path, BEGIN pipelining (via mysql protocol
+  pipelining, not multi-statement), and single-goroutine pipelined scatter.
+
 ## Current state (2026-06-11 22:15)
 - **8300 qps / 415 tps / p95 2.86ms — cumulative +67% from 4966 baseline.**
 - MySQL target: 46805 qps (structurally unreachable with 2 network hops, but
