@@ -34,6 +34,7 @@ services:
       SHARD: "80-"
       VTTABLET_EXTRA_FLAGS: "${VTTABLET_EXTRA_FLAGS:-}"
       GOGC: "200"
+      VT_FASTQUERY: "1"
 
     depends_on:
       mysql-2001:

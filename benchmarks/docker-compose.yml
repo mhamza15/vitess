@@ -74,6 +74,7 @@ services:
       SHARD: "${SHARD_1001}"
       VTTABLET_EXTRA_FLAGS: "${VTTABLET_EXTRA_FLAGS:-}"
       GOGC: "200"
+      VT_FASTQUERY: "1"
 
     depends_on:
       mysql-1001:
@@ -102,6 +103,7 @@ services:
       VTGATE_WORKLOAD_MODE: "${VTGATE_WORKLOAD_MODE:-}"
       VTGATE_MAX_MEMORY_ROWS: "${VTGATE_MAX_MEMORY_ROWS:-}"
       GOGC: "200"
+      VT_FASTQUERY: "1"
 
     depends_on:
       vtctld-init:

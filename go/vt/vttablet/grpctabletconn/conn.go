@@ -19,7 +19,9 @@ package grpctabletconn
 import (
 	"context"
 	"io"
+	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
@@ -30,6 +32,7 @@ import (
 	"vitess.io/vitess/go/vt/grpcclient"
 	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/utils"
+	"vitess.io/vitess/go/vt/vttablet/fastquery"
 	"vitess.io/vitess/go/vt/vttablet/queryservice"
 	"vitess.io/vitess/go/vt/vttablet/tabletconn"
 
@@ -82,6 +85,12 @@ type gRPCQueryClient struct {
 
 	// pipes pools long-lived ExecutePipe streams.
 	pipes pipePool
+
+	// fast is the raw-TCP fastquery transport, nil when disabled.
+	fast *fastquery.Pool
+	// fastDisabled is set after a fastquery dial failure; calls then
+	// permanently use the grpc path.
+	fastDisabled atomic.Bool
 }
 
 var _ queryservice.QueryService = (*gRPCQueryClient)(nil)
@@ -111,6 +120,12 @@ func DialTablet(ctx context.Context, tablet *topodatapb.Tablet, failFast grpccli
 		c:      c,
 	}
 
+	if os.Getenv("VT_FASTQUERY") != "" {
+		if grpcPort, ok := tablet.PortMap["grpc"]; ok {
+			result.fast = fastquery.NewPool(netutil.JoinHostPort(tablet.Hostname, grpcPort+1))
+		}
+	}
+
 	return result, nil
 }
 
@@ -134,6 +149,18 @@ func (conn *gRPCQueryClient) Execute(ctx context.Context, _ queryservice.Session
 		Options:       options,
 		ReservedId:    reservedID,
 	}
+	if conn.fast != nil && !conn.fastDisabled.Load() {
+		er, err, ok := conn.fast.Execute(ctx, req)
+		if ok {
+			if err != nil {
+				return nil, tabletconn.ErrorFromGRPC(err)
+			}
+			return sqltypes.Proto3ToResult(er.Result), nil
+		}
+		// Transport unavailable: permanent grpc fallback.
+		conn.fastDisabled.Store(true)
+	}
+
 	er, err := conn.executePipe(ctx, req)
 	if err != nil {
 		return nil, tabletconn.ErrorFromGRPC(err)
@@ -1214,6 +1241,9 @@ func (conn *gRPCQueryClient) Close(ctx context.Context) error {
 	cc := conn.cc
 	conn.cc = nil
 	conn.pipes.close()
+	if conn.fast != nil {
+		conn.fast.Close()
+	}
 	return cc.Close()
 }
 
