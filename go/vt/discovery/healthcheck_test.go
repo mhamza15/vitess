@@ -953,6 +953,109 @@ func TestStaleUpdateFromCanceledCheckConn(t *testing.T) {
 	})
 }
 
+// TestStaleDeleteFromReplacedCheckConn is a regression test for a race
+// between ReplaceTablet and the checkConn goroutine of the replaced tablet
+// when another tablet has taken over the replaced tablet's old address.
+//
+// When a stream health response carries an alias other than the one the
+// connection was opened for, processResponse returns a "health stats
+// mismatch" error and checkConn reacts by deleting its own tablet from the
+// healthcheck, expecting the topology watcher to re-add it under its new
+// address. The delete resolves the tablet by alias only, without checking
+// that the registered tabletHealthCheck belongs to the caller. If
+// ReplaceTablet registers the replacement after the stream returned the
+// mismatch error but before the dying checkConn goroutine acquires hc.mu,
+// the delete finds the replacement under the same alias, cancels it, and
+// deregisters it. Nothing repairs this afterwards: the topology watcher
+// only re-adds a tablet when its record differs from the watcher's own
+// map, which already holds the new address. A live, healthy tablet stays
+// out of routing until its topo record changes again.
+//
+// The window between the stream error and the delete is scheduler
+// dependent, so the old connection's stream is gated after the callback
+// error, and synctest.Wait guarantees each step is fully applied before
+// the next.
+func TestStaleDeleteFromReplacedCheckConn(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		ts := memorytopo.NewServer(ctx, "cell")
+		defer ts.Close()
+		hc := createTestHc(ctx, ts)
+		defer hc.Close()
+
+		target := &querypb.Target{Keyspace: "k", Shard: "s", TabletType: topodatapb.TabletType_REPLICA}
+
+		// The tablet before the restart, with its stream gated after a
+		// callback error.
+		oldTablet := createTestTablet(0, "cell", "a")
+		oldTablet.Type = topodatapb.TabletType_REPLICA
+		oldInput := make(chan *querypb.StreamHealthResponse)
+		oldConn := createFakeConn(oldTablet, oldInput)
+		oldConn.releaseOnCallbackErr = make(chan struct{})
+		// Always release the parked goroutine, even when an assertion fails
+		// before the inline release: the deferred hc.Close() waits for it, and
+		// a goroutine parked forever would turn the test failure into a
+		// synctest bubble-deadlock panic.
+		releaseOldConn := sync.OnceFunc(func() { close(oldConn.releaseOnCallbackErr) })
+		defer releaseOldConn()
+
+		// The same tablet after the restart: same alias, new ports.
+		newTablet := createTestTablet(0, "cell", "a")
+		newTablet.Type = topodatapb.TabletType_REPLICA
+		newTablet.PortMap["vt"] = 5
+		newTablet.PortMap["grpc"] = 6
+		newInput := make(chan *querypb.StreamHealthResponse)
+		createFakeConn(newTablet, newInput)
+
+		shr := &querypb.StreamHealthResponse{
+			TabletAlias:   oldTablet.Alias,
+			Target:        target,
+			Serving:       true,
+			RealtimeStats: &querypb.RealtimeStats{ReplicationLagSeconds: 1, CpuUsage: 0.2},
+		}
+
+		hc.AddTablet(oldTablet)
+		oldInput <- shr
+		synctest.Wait()
+		require.Len(t, hc.GetHealthyTabletStats(target), 1, "tablet should be healthy before the restart")
+
+		// Another tablet took over the old address and answers on the old
+		// stream with its own alias. processResponse returns the mismatch
+		// error and the gated stream parks before handing it to checkConn.
+		impostor := createTestTablet(1, "cell", "a")
+		oldInput <- &querypb.StreamHealthResponse{
+			TabletAlias:   impostor.Alias,
+			Target:        target,
+			Serving:       true,
+			RealtimeStats: &querypb.RealtimeStats{ReplicationLagSeconds: 1, CpuUsage: 0.2},
+		}
+		synctest.Wait()
+
+		// The topology watcher notices the restarted tablet and replaces it.
+		hc.ReplaceTablet(oldTablet, newTablet)
+
+		// The new connection reports good health and the tablet is routable.
+		newInput <- shr
+		synctest.Wait()
+		require.Len(t, hc.GetHealthyTabletStats(target), 1, "tablet should be healthy again after the replace")
+
+		// Release the parked goroutine. Its stream now returns the mismatch
+		// error and checkConn deletes its tablet by alias, after the
+		// replacement was registered under that same alias.
+		releaseOldConn()
+		synctest.Wait()
+
+		// The replacement must survive the stale delete: it belongs to the
+		// new address, not to the stream that observed the mismatch.
+		assert.NotNil(t, hc.registeredHealthCheck(newTablet.Alias),
+			"replacement tabletHealthCheck was deregistered by the stale delete from the replaced checkConn")
+		healthy := hc.GetHealthyTabletStats(target)
+		require.Len(t, healthy, 1,
+			"tablet is serving and streaming health but missing from the healthy list: stale delete from the replaced checkConn removed it")
+		assert.True(t, healthy[0].Serving)
+	})
+}
+
 // When an external primary failover is performed,
 // the demoted primary will advertise itself as a `PRIMARY`
 // tablet until it recognizes that it was demoted,
@@ -1760,6 +1863,10 @@ type fakeConn struct {
 	// is closed and then makes it return ctx.Err() like a real gRPC stream,
 	// instead of returning nil right away.
 	releaseOnCancel chan struct{}
+	// releaseOnCallbackErr, if non-nil, parks the stream after the callback
+	// returned an error, until the channel is closed, before the error is
+	// handed back to checkConn.
+	releaseOnCallbackErr chan struct{}
 
 	mu       sync.Mutex
 	canceled bool
@@ -1794,6 +1901,9 @@ func (fc *fakeConn) StreamHealth(ctx context.Context, callback func(shr *querypb
 				select {
 				case fc.cbErrCh <- err:
 				case <-ctx.Done():
+				}
+				if fc.releaseOnCallbackErr != nil {
+					<-fc.releaseOnCallbackErr
 				}
 				return err
 			}
