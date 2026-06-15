@@ -953,6 +953,68 @@ func TestStaleUpdateFromCanceledCheckConn(t *testing.T) {
 	})
 }
 
+// TestRemoveTabletDoesNotCountAsHealthcheckError is a regression test for the
+// checkConn error path counting a deliberate teardown as a healthcheck error.
+//
+// RemoveTablet (and ReplaceTablet and Close) cancels the tablet's
+// tabletHealthCheck context, which cancels the stream context. A real gRPC
+// stream then returns a CANCELED error from stream(), and checkConn's error
+// path increments hcErrorCounters before the loop's bottom select notices
+// thc.ctx is done and returns. A planned removal is not a health failure, so
+// it must not inflate the HealthcheckErrors stat.
+func TestRemoveTabletDoesNotCountAsHealthcheckError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := t.Context()
+		ts := memorytopo.NewServer(ctx, "cell")
+		defer ts.Close()
+		hc := createTestHc(ctx, ts)
+		defer hc.Close()
+		hcErrorCounters.ResetAll()
+
+		target := &querypb.Target{Keyspace: "k", Shard: "s", TabletType: topodatapb.TabletType_REPLICA}
+
+		// The tablet's stream is gated on cancellation so that, like a real
+		// gRPC stream, it returns ctx.Err() instead of nil when canceled.
+		tablet := createTestTablet(0, "cell", "a")
+		tablet.Type = topodatapb.TabletType_REPLICA
+		input := make(chan *querypb.StreamHealthResponse)
+		conn := createFakeConn(tablet, input)
+		conn.releaseOnCancel = make(chan struct{})
+		// Always release the parked goroutine, even when an assertion fails
+		// before the inline release: the deferred hc.Close() waits for it, and
+		// a goroutine parked forever would turn the test failure into a
+		// synctest bubble-deadlock panic.
+		releaseConn := sync.OnceFunc(func() { close(conn.releaseOnCancel) })
+		defer releaseConn()
+
+		shr := &querypb.StreamHealthResponse{
+			TabletAlias:   tablet.Alias,
+			Target:        target,
+			Serving:       true,
+			RealtimeStats: &querypb.RealtimeStats{ReplicationLagSeconds: 1, CpuUsage: 0.2},
+		}
+
+		hc.AddTablet(tablet)
+		input <- shr
+		synctest.Wait()
+		require.Len(t, hc.GetHealthyTabletStats(target), 1, "tablet should be healthy before removal")
+
+		// A planned removal cancels the stream; the gated goroutine parks
+		// inside its stream before running its error path.
+		hc.RemoveTablet(tablet)
+
+		// Release the canceled goroutine. Its stream now returns ctx.Err() and
+		// checkConn runs its error path.
+		releaseConn()
+		synctest.Wait()
+
+		// Cancelling the stream for a deliberate removal is not a health
+		// failure and must not increment the error counter.
+		assert.NoError(t, checkErrorCounter("k", "s", topodatapb.TabletType_REPLICA, 0),
+			"a deliberate RemoveTablet was counted as a healthcheck error")
+	})
+}
+
 // When an external primary failover is performed,
 // the demoted primary will advertise itself as a `PRIMARY`
 // tablet until it recognizes that it was demoted,
