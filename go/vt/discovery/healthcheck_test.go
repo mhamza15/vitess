@@ -343,6 +343,100 @@ func TestHealthCheckStreamError(t *testing.T) {
 	assert.Empty(t, a, "wrong result, expected empty list")
 }
 
+// TestNoRaceBetweenQueryPathAndCheckConn guards the synchronization of
+// tabletHealthCheck fields. The checkConn goroutine writes Target, Stats,
+// LastError, Serving and Conn when it processes a health update or a stream
+// error, while vtgate request goroutines concurrently read them through
+// TabletConnection, reached from scatter_conn and tx_conn, and through
+// GetTabletHealthByAlias. The stream error is parked inside Conn.Close so
+// the reads provably overlap the closeConnection writes. The final
+// assertions are a sanity check only: the test exists for the race
+// detector, which fails it when those accesses are unsynchronized.
+func TestNoRaceBetweenQueryPathAndCheckConn(t *testing.T) {
+	ctx := utils.LeakCheckContext(t)
+
+	ts := memorytopo.NewServer(ctx, "cell")
+	defer ts.Close()
+	hc := createTestHc(ctx, ts)
+	defer hc.Close()
+
+	tablet := createTestTablet(0, "cell", "a")
+	target := &querypb.Target{Keyspace: "k", Shard: "s", TabletType: topodatapb.TabletType_REPLICA}
+	input := make(chan *querypb.StreamHealthResponse)
+	resultChan := hc.Subscribe("TestNoRaceBetweenQueryPathAndCheckConn")
+	fc := createFakeConn(tablet, input)
+	fc.errCh = make(chan error)
+	fc.closeStarted = make(chan struct{})
+	fc.releaseClose = make(chan struct{})
+	var releaseOnce sync.Once
+	releasePark := func() { releaseOnce.Do(func() { close(fc.releaseClose) }) }
+	defer releasePark()
+	hc.AddTablet(tablet)
+
+	// Initial notification from AddTablet, then a healthy update so the
+	// tablet has an established connection and serving state.
+	<-resultChan
+	shr := &querypb.StreamHealthResponse{
+		TabletAlias:   tablet.Alias,
+		Target:        target,
+		Serving:       true,
+		RealtimeStats: &querypb.RealtimeStats{ReplicationLagSeconds: 1, CpuUsage: 0.2},
+	}
+	input <- shr
+	<-resultChan
+
+	// Hammer the read paths from a request goroutine the way live traffic
+	// does. Results are intentionally discarded, the loop exists only to
+	// overlap the reads with the checkConn writes. The iteration counter is
+	// the sole link between this goroutine and the rest of the test: any
+	// other coordination would create happens-before edges that hide the
+	// race from the detector.
+	var iterations atomic.Int64
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_, _ = hc.TabletConnection(ctx, tablet.Alias, target)
+			_, _ = hc.GetTabletHealthByAlias(tablet.Alias)
+			iterations.Add(1)
+		}
+	}()
+	defer wg.Wait()
+	defer close(stop)
+
+	// A few more updates while the reads are in flight cover the writes
+	// that processResponse makes for every health update.
+	for range 3 {
+		input <- shr
+		<-resultChan
+	}
+
+	// Fail the stream. closeConnection writes Serving and LastError and
+	// then parks inside Conn.Close until released. Waiting for the counter
+	// to advance by two guarantees at least one reader iteration ran
+	// entirely inside the park: the first increment can belong to an
+	// iteration whose reads predate the park, the second cannot. Releasing
+	// the park then lands the Conn = nil write.
+	fc.errCh <- errors.New("some stream error")
+	<-fc.closeStarted
+	parked := iterations.Load()
+	require.Eventually(t, func() bool {
+		return iterations.Load() >= parked+2
+	}, 30*time.Second, time.Millisecond)
+	releasePark()
+
+	result := <-resultChan
+	assert.False(t, result.Serving)
+	assert.ErrorContains(t, result.LastError, "some stream error")
+}
+
 // TestHealthCheckErrorOnPrimary is the same as TestHealthCheckStreamError except for tablet type
 func TestHealthCheckErrorOnPrimary(t *testing.T) {
 	ctx := utils.LeakCheckContext(t)
@@ -1663,6 +1757,12 @@ type fakeConn struct {
 	errCh chan error
 	// cbErrCh is a channel which receives errors returned from the supplied callback.
 	cbErrCh chan error
+	// closeStarted and releaseClose, if non-nil, make Close report that it
+	// was entered and then park until releaseClose is closed, like a
+	// connection whose teardown hangs on the network. Once releaseClose is
+	// closed, later Close calls pass through immediately.
+	closeStarted chan struct{}
+	releaseClose chan struct{}
 
 	mu       sync.Mutex
 	canceled bool
@@ -1709,6 +1809,18 @@ func (fc *fakeConn) StreamHealth(ctx context.Context, callback func(shr *querypb
 			return nil
 		}
 	}
+}
+
+// Close implements queryservice.QueryService.
+func (fc *fakeConn) Close(ctx context.Context) error {
+	if fc.closeStarted != nil {
+		select {
+		case fc.closeStarted <- struct{}{}:
+		case <-fc.releaseClose:
+		}
+		<-fc.releaseClose
+	}
+	return fc.QueryService.Close(ctx)
 }
 
 func (fc *fakeConn) isCanceled() bool {
