@@ -226,7 +226,8 @@ unit_test: build dependency_check demo
 # e2e runs the containerized end-to-end tests. It builds the images
 # from the current source first, so the containers run the code under test.
 # Usage: make e2e [PKG=./go/test/endtoend/vtgate/...] [GOTEST_FLAGS="-json"]
-e2e: vitesst_images
+# SKIP_IMAGE_BUILD=1 runs against already-loaded images without baking.
+e2e: $(if $(SKIP_IMAGE_BUILD),,vitesst_images)
 ifndef NOBANNER
 	echo $$(date): Running endtoend tests
 endif
