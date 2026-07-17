@@ -31,6 +31,9 @@ import (
 	"vitess.io/vitess/go/test/endtoend/utils"
 	"vitess.io/vitess/go/vitesst"
 	"vitess.io/vitess/go/vt/topo"
+
+	// Registers the etcd2 topology factory so topo.OpenServer can dial it.
+	_ "vitess.io/vitess/go/vt/topo/etcd2topo"
 )
 
 var (
