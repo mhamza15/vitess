@@ -189,6 +189,8 @@ func makeTabletNotServing(t *testing.T, clusterInstance *vitesst.Cluster, tablet
 	// We now restart the vttablet that became a replica.
 	StopTablet(t, tablets[primary], false)
 	restartTablet(t, tablets[primary])
+	err = clusterInstance.VTGate().WaitForTabletInHealthcheck(t.Context(), tablets[primary], "replica", true, time.Minute)
+	require.NoError(t, err)
 	stateChanged <- true
 
 	// Wait for the action triggering the VT15001 to be done before moving on

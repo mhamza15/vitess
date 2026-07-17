@@ -33,6 +33,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
 
+	"vitess.io/vitess/go/mysql"
 	"vitess.io/vitess/go/vt/grpcclient"
 	"vitess.io/vitess/go/vt/vtgate/grpcvtgateconn"
 	"vitess.io/vitess/go/vt/vtgate/vtgateconn"
@@ -61,18 +62,40 @@ type (
 
 // MySQLAddr returns the host-reachable "host:port" of the vtgate MySQL
 // listener.
-func (g *VTGate) MySQLAddr(ctx context.Context) (string, error) {
-	return g.hostAddr(ctx, fmt.Sprintf("%d/tcp", vtgateMySQLPort))
+func (vtg *VTGate) MySQLAddr(ctx context.Context) (string, error) {
+	return vtg.hostAddr(ctx, fmt.Sprintf("%d/tcp", vtgateMySQLPort))
+}
+
+// Connect returns a new MySQL connection to this vtgate with no default
+// database selected.
+func (vtg *VTGate) Connect(ctx context.Context) (*mysql.Conn, error) {
+	addr, err := vtg.MySQLAddr(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolving %s mysql address: %w", vtg.name, err)
+	}
+
+	host, portStr, _ := strings.Cut(addr, ":")
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s mysql port from %q: %w", vtg.name, addr, err)
+	}
+
+	params := mysql.ConnParams{Host: host, Port: port}
+	conn, err := mysql.Connect(ctx, &params)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to %s: %w", vtg.name, err)
+	}
+	return conn, nil
 }
 
 // GRPCAddr returns the host-reachable "host:port" of the vtgate gRPC port.
-func (g *VTGate) GRPCAddr(ctx context.Context) (string, error) {
-	return g.hostAddr(ctx, fmt.Sprintf("%d/tcp", vtgateGRPCPort))
+func (vtg *VTGate) GRPCAddr(ctx context.Context) (string, error) {
+	return vtg.hostAddr(ctx, fmt.Sprintf("%d/tcp", vtgateGRPCPort))
 }
 
 // DialVTGate returns a vtgateconn connected to this vtgate over gRPC.
-func (g *VTGate) DialVTGate(ctx context.Context) (*vtgateconn.VTGateConn, error) {
-	addr, err := g.GRPCAddr(ctx)
+func (vtg *VTGate) DialVTGate(ctx context.Context) (*vtgateconn.VTGateConn, error) {
+	addr, err := vtg.GRPCAddr(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +110,8 @@ var dialerSeq atomic.Uint64
 // DialVTGateAs returns a vtgateconn connected to this vtgate over gRPC,
 // authenticating as the given static-auth user. An empty username and password
 // dials without credentials, so the vtgate rejects the unauthenticated client.
-func (g *VTGate) DialVTGateAs(ctx context.Context, username, password string) (*vtgateconn.VTGateConn, error) {
-	addr, err := g.GRPCAddr(ctx)
+func (vtg *VTGate) DialVTGateAs(ctx context.Context, username, password string) (*vtgateconn.VTGateConn, error) {
+	addr, err := vtg.GRPCAddr(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -100,21 +123,21 @@ func (g *VTGate) DialVTGateAs(ctx context.Context, username, password string) (*
 }
 
 // ReadVSchema fetches and decodes the vtgate's /debug/vschema.
-func (g *VTGate) ReadVSchema(ctx context.Context) (*any, error) {
+func (vtg *VTGate) ReadVSchema(ctx context.Context) (*any, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	status, body, err := g.MakeAPICall(ctx, "/debug/vschema")
+	status, body, err := vtg.MakeAPICall(ctx, "/debug/vschema")
 	if err != nil {
 		return nil, err
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("%s /debug/vschema returned status %d", g.name, status)
+		return nil, fmt.Errorf("%s /debug/vschema returned status %d", vtg.name, status)
 	}
 
 	var results any
 	if err := json.Unmarshal([]byte(body), &results); err != nil {
-		return nil, fmt.Errorf("decoding %s /debug/vschema: %w", g.name, err)
+		return nil, fmt.Errorf("decoding %s /debug/vschema: %w", vtg.name, err)
 	}
 	return &results, nil
 }
@@ -122,23 +145,23 @@ func (g *VTGate) ReadVSchema(ctx context.Context) (*any, error) {
 // WriteConfig replaces the vtgate's watched config file, so the running
 // vtgate hot-reloads the new values. Poll /debug/config through MakeAPICall
 // to observe the reload.
-func (g *VTGate) WriteConfig(ctx context.Context, content string) error {
-	ctr := g.container()
+func (vtg *VTGate) WriteConfig(ctx context.Context, content string) error {
+	ctr := vtg.container()
 	if ctr == nil {
-		return fmt.Errorf("%s has no container", g.name)
+		return fmt.Errorf("%s has no container", vtg.name)
 	}
 	return writeContainerFile(ctx, ctr, vtgateConfigPath, content)
 }
 
 // QueryLog returns the vtgate's query log content so far.
-func (g *VTGate) QueryLog(ctx context.Context) (string, error) {
-	ctr := g.container()
+func (vtg *VTGate) QueryLog(ctx context.Context) (string, error) {
+	ctr := vtg.container()
 	if ctr == nil {
-		return "", fmt.Errorf("%s has no container", g.name)
+		return "", fmt.Errorf("%s has no container", vtg.name)
 	}
 	_, output, err := containerExec(ctx, ctr, []string{"cat", vtgateQueryLogPath})
 	if err != nil {
-		return "", fmt.Errorf("reading %s query log: %w", g.name, err)
+		return "", fmt.Errorf("reading %s query log: %w", vtg.name, err)
 	}
 	return output, nil
 }
@@ -147,26 +170,26 @@ func (g *VTGate) QueryLog(ctx context.Context) (string, error) {
 // network alias. When extraArgs are given they replace the vtgate's previous
 // extra args, so tests can restart vtgate with new flags. Mapped host ports
 // change across a restart; use the address accessors to re-resolve them.
-func (g *VTGate) Restart(t testing.TB, ctx context.Context, extraArgs ...string) error {
-	g.specMu.Lock()
+func (vtg *VTGate) Restart(t testing.TB, ctx context.Context, extraArgs ...string) error {
+	vtg.specMu.Lock()
 	if len(extraArgs) > 0 {
-		g.spec.ExtraArgs = extraArgs
+		vtg.spec.ExtraArgs = extraArgs
 	}
-	spec := g.spec
-	g.specMu.Unlock()
+	spec := vtg.spec
+	vtg.specMu.Unlock()
 
-	old := g.setContainer(nil)
+	old := vtg.setContainer(nil)
 	if old != nil {
 		if err := testcontainers.TerminateContainer(old, testcontainers.StopContext(ctx), testcontainers.StopTimeout(0)); err != nil {
-			return fmt.Errorf("terminating %s for restart: %w", g.name, err)
+			return fmt.Errorf("terminating %s for restart: %w", vtg.name, err)
 		}
 	}
 
-	ctr, err := g.cluster.runVTGateContainer(t, ctx, g.name, spec)
+	ctr, err := vtg.cluster.runVTGateContainer(t, ctx, vtg.name, spec)
 	if err != nil {
-		return fmt.Errorf("restarting %s: %w", g.name, err)
+		return fmt.Errorf("restarting %s: %w", vtg.name, err)
 	}
-	g.setContainer(ctr)
+	vtg.setContainer(ctr)
 	return nil
 }
 
