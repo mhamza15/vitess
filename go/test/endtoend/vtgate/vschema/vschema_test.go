@@ -200,7 +200,7 @@ func TestVSchemaSQLAPIConcurrency(t *testing.T) {
 		wg.Go(func() {
 			time.Sleep(time.Duration(rand.IntN(100) * int(time.Nanosecond)))
 			tableName := fmt.Sprintf("%s%d", baseTableName, i)
-			_, err = mysqlConns[i].ExecuteFetch("ALTER VSCHEMA ADD TABLE "+tableName, -1, false)
+			_, err := mysqlConns[i].ExecuteFetch("ALTER VSCHEMA ADD TABLE "+tableName, -1, false)
 			if isVersionMismatchErr(err) {
 				preventedLostWrites.Store(true)
 			} else {
