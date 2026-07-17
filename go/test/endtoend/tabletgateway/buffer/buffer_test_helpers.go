@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,11 +63,11 @@ const (
 
 // threadParams is set of params passed into read and write threads
 type threadParams struct {
-	quit                       bool
+	quit                       atomic.Bool
 	rpcs                       int        // Number of queries successfully executed.
 	errors                     []error    // Errors returned by the queries.
 	waitForNotification        chan bool  // Channel used to notify the main thread that this thread executed
-	notifyLock                 sync.Mutex // notifyLock guards the two fields notifyAfterNSuccessfulRpcs/rpcsSoFar.
+	notifyLock                 sync.Mutex // notifyLock guards rpcs, notifyAfterNSuccessfulRpcs and rpcsSoFar.
 	notifyAfterNSuccessfulRpcs int        // If 0, notifications are disabled
 	rpcsSoFar                  int        // Number of RPCs at the time a notification was requested
 	index                      int        //
@@ -93,18 +94,18 @@ func (c *threadParams) threadRun(wg *sync.WaitGroup, vtParams *mysql.ConnParams)
 			log.Error(fmt.Sprintf("error setting default_week_format: %v", err))
 		}
 	}
-	for !c.quit {
+	for !c.quit.Load() {
 		err = c.executeFunction(c, conn)
 		if err != nil {
 			c.errors = append(c.errors, err)
 			log.Error(fmt.Sprintf("error executing function %s: %v", c.typ, err))
 		}
-		c.rpcs++
 		// If notifications are requested, check if we already executed the
 		// required number of successful RPCs.
 		// Use >= instead of == because we can miss the exact point due to
 		// slow thread scheduling.
 		c.notifyLock.Lock()
+		c.rpcs++
 		if c.notifyAfterNSuccessfulRpcs != 0 && c.rpcs >= (c.notifyAfterNSuccessfulRpcs+c.rpcsSoFar) {
 			c.waitForNotification <- true
 			c.notifyAfterNSuccessfulRpcs = 0
@@ -123,7 +124,7 @@ func (c *threadParams) ExpectQueries(n int) {
 }
 
 func (c *threadParams) stop() {
-	c.quit = true
+	c.quit.Store(true)
 }
 
 func readExecute(c *threadParams, conn *mysql.Conn) error {
@@ -330,9 +331,10 @@ func (bt *BufferingTest) Test(t *testing.T) {
 		log.Error("failed to get update thread notification")
 	}
 
-	// Stop threads
+	// Stop threads and wait for them to finish before reading their results.
 	readThreadInstance.stop()
 	updateThreadInstance.stop()
+	bt.wg.Wait()
 
 	// Both threads must not see any error
 	assert.Empty(t, readThreadInstance.errors, "found errors in read queries")
@@ -357,8 +359,6 @@ func (bt *BufferingTest) Test(t *testing.T) {
 	} else {
 		bt.Assert(t, label, &metadata)
 	}
-
-	bt.wg.Wait()
 }
 
 type VTGateBufferingStats struct {
