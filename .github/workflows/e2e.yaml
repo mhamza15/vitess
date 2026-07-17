@@ -68,8 +68,9 @@ jobs:
             | go tool -modfile=tools/gotestsum/go.mod gotestsum tool ci-matrix \
                 --partitions "$PARTITIONS" --timing-files './timing/**/*.log')
           echo "matrix=$(jq -c '.include |= map(
-            (. + {race: false}),
-            (. + {race: true, id: "\(.id)-race", description: "\(.description) (race)"})
+            (.packages | split(" ") | map(sub("^vitess.io/vitess/go/test/endtoend/"; "")) | join(", ")) as $pkgs
+            | (. + {race: false, description: "Shard \(.id) - \($pkgs)"}),
+              (. + {race: true, id: "\(.id)-race", description: "Shard \(.id) - \($pkgs) (race)"})
           )' <<<"$matrix")" >> "$GITHUB_OUTPUT"
 
   test:
