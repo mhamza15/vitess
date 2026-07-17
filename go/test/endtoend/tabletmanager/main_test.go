@@ -108,7 +108,7 @@ var (
 const (
 	// hookScriptPath is the repository's sample hook, and hookContainerPath is
 	// where vttablet looks for hooks inside the tablet containers.
-	hookScriptPath    = "../../../../vthook/test.sh"
+	hookScriptPath    = "../../../../test/vthook-test.sh"
 	hookContainerPath = "/vt/vthook/test.sh"
 
 	// tabletMySQLPort is the mysqld port inside every tablet container.
