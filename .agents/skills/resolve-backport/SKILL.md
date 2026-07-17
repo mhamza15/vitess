@@ -56,23 +56,17 @@ Follow these steps precisely to resolve merge conflicts in a Vitess backport PR.
   cd /tmp/backport-<number>
   ```
 
-## Step 3: Rebase onto latest base branch
+## Step 3: Check the base branch
 
-The backport branch may be based on a stale version of the release branch. **Always rebase before resolving conflicts** to avoid creating a resolution that conflicts with the current base.
+**Do not rewrite history.** Resolve conflicts in the working tree and apply the resolution as a new
+commit on top of the existing branch. Never rebase or force-push unless the user explicitly asks.
 
 - Determine the base branch from the PR metadata `baseRefName` (e.g., `release-24.0`).
 - Detect the remote pointing to `vitessio/vitess`. Do not assume it is named `upstream`:
   ```
   git remote -v | grep 'vitessio/vitess.*fetch'
   ```
-  Use the matching remote name (commonly `upstream` or `origin`) for all subsequent fetch/rebase commands. If no remote points to `vitessio/vitess`, **ask the user** which remote to use.
-- Fetch and rebase:
-  ```
-  git fetch <remote> <base-branch>
-  git rebase <remote>/<base-branch>
-  ```
-- If the rebase itself has conflicts, resolve them as part of Step 5 below (they will be the same conflicts you'd resolve anyway, but now against the correct base).
-- If the rebase has no conflicts, continue to the next step.
+  If no remote points to `vitessio/vitess`, **ask the user** which remote to use.
 
 ## Step 4: Ensure correct Go version
 
@@ -163,6 +157,10 @@ The backport branch may be based on a stale version of the release branch. **Alw
 
 ## Step 10: Ship
 
+- Before anything is published, present to the user for approval: the commit message, a summary of
+  the staged changes, and the draft PR comment (which files had conflicts, how they were resolved,
+  and any notable decisions). Do not commit, push, or comment until the user approves. If the user
+  requests edits, revise and re-present.
 - Remove conflict labels **before pushing** (so the push doesn't trigger CI with Skip CI still set):
   ```
   gh pr edit <number> --repo vitessio/vitess --remove-label "Skip CI" --remove-label "Merge Conflict"
@@ -172,11 +170,15 @@ The backport branch may be based on a stale version of the release branch. **Alw
   ```
   git commit --signoff -m "resolve conflicts for backport of #<upstream-number>"
   ```
-- **Ask the user** before pushing. Force push is expected after rebase, so prompt with something like: "Ready to force-push the resolved branch. Shall I proceed?" Only push after the user confirms:
+  The repo's pre-commit hook runs `$(go env GOPATH)/bin/goimports` and lints staged changes. If
+  that goimports binary is missing (common when GOBIN points elsewhere, e.g. mise), the hook fails
+  with a garbled path even on clean files — install goimports or symlink it into
+  `$(go env GOPATH)/bin` rather than bypassing the hook with `--no-verify`.
+- Push normally (approval was already given above):
   ```
-  git push --force-with-lease
+  git push
   ```
-- Add a PR comment summarizing the conflict resolution. Include which files had conflicts, how they were resolved, and any notable decisions (e.g., keeping functions from prior backports, adapting code to the release branch context):
+- Post the approved PR comment:
   ```
   gh pr comment <number> --repo vitessio/vitess --body "<summary>"
   ```
