@@ -100,13 +100,17 @@ jobs:
       - name: Run tests
         env:
           PKG: ${{ matrix.packages }}
-          RACE_FLAG: ${{ matrix.race && '-race' || '' }}
+          RACE: ${{ matrix.race }}
         run: |
           set -o pipefail
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          make -s NOBANNER=1 e2e PKG="$PKG" \
-            BAKE_ARGS='--set *.platform=linux/amd64 --set *.cache-from=type=gha,scope=vitesst --set *.cache-to=type=gha,mode=max,scope=vitesst' \
-            GOTEST_FLAGS="-json $RACE_FLAG -artifacts -outputdir $GITHUB_WORKSPACE/artifacts" \
+          BAKE_ARGS='--set *.platform=linux/amd64 --set *.cache-from=type=gha,scope=vitesst --set *.cache-to=type=gha,mode=max,scope=vitesst'
+          GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
+          if [[ "$RACE" == "true" ]]; then
+            BAKE_ARGS+=' --set *.args.RACE=1'
+            GOTEST_FLAGS+=' -race'
+          fi
+          make -s NOBANNER=1 e2e PKG="$PKG" BAKE_ARGS="$BAKE_ARGS" GOTEST_FLAGS="$GOTEST_FLAGS" \
             | go tool -modfile=tools/gotestsum/go.mod gotestsum \
                 --raw-command --format github-actions --jsonfile timing.log -- cat
 

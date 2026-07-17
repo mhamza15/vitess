@@ -21,7 +21,7 @@
 
 ARG BASE_IMAGE=debian:trixie-slim
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /vt/src/vitess.io/vitess
 
@@ -35,8 +35,13 @@ COPY go go
 # transaction/twopc fault-injection suites.
 ARG EXTRA_BUILD_TAGS=""
 
+# Non-empty RACE compiles the binaries with the race detector, which needs
+# cgo and the builder's glibc toolchain.
+ARG RACE=""
+
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -tags "${EXTRA_BUILD_TAGS}" -o /vt/bin/ \
+    CGO_ENABLED=$([ -n "${RACE}" ] && echo 1 || echo 0) \
+    go build -trimpath ${RACE:+-race} -tags "${EXTRA_BUILD_TAGS}" -o /vt/bin/ \
     ./go/cmd/mysqlctl ./go/cmd/mysqlctld ./go/cmd/vtorc ./go/cmd/vtadmin \
     ./go/cmd/vtctld ./go/cmd/vtctlclient ./go/cmd/vtctldclient \
     ./go/cmd/vtgate ./go/cmd/vttablet ./go/cmd/vtbackup
@@ -71,6 +76,11 @@ COPY --chown=vitess:vitess config/mycnf /vt/config/mycnf
 ENV VTROOT=/vt
 ENV VTDATAROOT=/vt/vtdataroot
 ENV PATH=/vt/bin:$PATH
+
+# Race-built binaries exit on the first detected race instead of only
+# logging a warning, so a race fails the test against the dead component.
+ARG RACE=""
+ENV GORACE=${RACE:+halt_on_error=1}
 
 # /vt/files is the drop zone for files the framework and tests copy into
 # containers (init_db.sql, supervisor script, certs, ...). /vt/backups is the
