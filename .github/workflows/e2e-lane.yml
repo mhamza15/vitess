@@ -48,27 +48,19 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push images
-        env:
-          RACE: ${{ inputs.race }}
-
-        run: |
-          BAKE_ARGS='--set *.platform=linux/amd64 --set *.cache-from=type=gha,scope=vitesst --set *.cache-to=type=gha,mode=max,scope=vitesst'
-          if [[ "$RACE" == "true" ]]; then
-            BAKE_ARGS+=' --set *.args.RACE=1'
-          fi
-
-          make -s NOBANNER=1 vitesst_images BAKE_ARGS="$BAKE_ARGS"
-
-          suffix=''
-          if [[ "$RACE" == "true" ]]; then
-            suffix='-race'
-          fi
-
-          repo="ghcr.io/${GITHUB_REPOSITORY@L}/vitesst"
-          for flavor in mysql80 mysql84 mariadb; do
-            docker tag "vitesst:$flavor" "$repo:$flavor-$GITHUB_SHA$suffix"
-            docker push -q "$repo:$flavor-$GITHUB_SHA$suffix"
-          done
+        uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7.3.0
+        with:
+          source: .
+          files: go/vitesst/docker-bake.hcl
+          push: true
+          set: |
+            *.platform=linux/amd64
+            *.cache-from=type=gha,scope=vitesst${{ inputs.race && '-race' || '' }}
+            *.cache-to=type=gha,mode=max,scope=vitesst${{ inputs.race && '-race' || '' }}
+            *.args.RACE=${{ inputs.race && '1' || '' }}
+            mysql80.tags=ghcr.io/${{ github.repository }}/vitesst:mysql80-${{ github.sha }}${{ inputs.race && '-race' || '' }}
+            mysql84.tags=ghcr.io/${{ github.repository }}/vitesst:mysql84-${{ github.sha }}${{ inputs.race && '-race' || '' }}
+            mariadb.tags=ghcr.io/${{ github.repository }}/vitesst:mariadb-${{ github.sha }}${{ inputs.race && '-race' || '' }}
 
   generate-matrix:
     name: Generate shard matrix
