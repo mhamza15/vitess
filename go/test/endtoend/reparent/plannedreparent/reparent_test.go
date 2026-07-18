@@ -131,7 +131,7 @@ func TestReparentReplicaOffline(t *testing.T) {
 		require.NotNil(c, tabletInfo.TabletShutdownTime)
 		shutdownTime := protoutil.TimeFromProto(tabletInfo.TabletShutdownTime)
 		require.WithinRange(c, shutdownTime, startKillTime, time.Now())
-	}, time.Second, time.Second*31)
+	}, time.Second*31, time.Second)
 
 	// Perform a graceful reparent operation.
 	out, err := PrsWithTimeout(t, clusterInstance, tablets[1], false, "", "31s")
