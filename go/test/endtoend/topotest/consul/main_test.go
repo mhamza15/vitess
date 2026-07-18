@@ -19,6 +19,7 @@ package consul
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,7 +66,8 @@ func setupCluster(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithTopo("consul"),
 		vitesst.WithKeyspace(KeyspaceName).
 			WithShardNames("0").
@@ -150,19 +152,19 @@ func TestShardLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// We'll now try to acquire the lock from a different thread.
-	secondThreadLockAcquired := false
+	var secondThreadLockAcquired atomic.Bool
 	go func() {
 		_, unlock, err := ts.LockShard(t.Context(), KeyspaceName, "0", "TestShardLocking")
 		if !assert.NoError(t, err) {
 			return
 		}
 		defer unlock(&err)
-		secondThreadLockAcquired = true
+		secondThreadLockAcquired.Store(true)
 	}()
 
 	// Wait for some time and ensure that the second acquiring of lock shard is blocked.
 	time.Sleep(100 * time.Millisecond)
-	require.False(t, secondThreadLockAcquired)
+	require.False(t, secondThreadLockAcquired.Load())
 
 	// Unlock the shard.
 	unlock(&err)
@@ -194,19 +196,19 @@ func TestKeyspaceLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// We'll now try to acquire the lock from a different thread.
-	secondThreadLockAcquired := false
+	var secondThreadLockAcquired atomic.Bool
 	go func() {
 		_, unlock, err := ts.LockKeyspace(t.Context(), KeyspaceName, "TestKeyspaceLocking")
 		if !assert.NoError(t, err) {
 			return
 		}
 		defer unlock(&err)
-		secondThreadLockAcquired = true
+		secondThreadLockAcquired.Store(true)
 	}()
 
 	// Wait for some time and ensure that the second acquiring of lock shard is blocked.
 	time.Sleep(100 * time.Millisecond)
-	require.False(t, secondThreadLockAcquired)
+	require.False(t, secondThreadLockAcquired.Load())
 
 	// Unlock the keyspace.
 	unlock(&err)
@@ -245,20 +247,20 @@ func TestNamedLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// We'll now try to acquire the lock from a different goroutine.
-	secondCallerAcquired := false
+	var secondCallerAcquired atomic.Bool
 	go func() {
 		_, unlock, err := ts.LockName(t.Context(), lockName, action)
 		if !assert.NoError(t, err) {
 			return
 		}
 		defer unlock(&err)
-		secondCallerAcquired = true
+		secondCallerAcquired.Store(true)
 	}()
 
 	// Wait for some time and ensure that the second attempt at acquiring the lock
 	// is blocked.
 	time.Sleep(100 * time.Millisecond)
-	require.False(t, secondCallerAcquired)
+	require.False(t, secondCallerAcquired.Load())
 
 	// Unlock the name.
 	unlock(&err)

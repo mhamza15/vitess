@@ -17,14 +17,15 @@ limitations under the License.
 package utils
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-// WaitForBoolValue takes a pointer to a boolean and waits for it to reach a certain value.
-func WaitForBoolValue(t *testing.T, val *bool, waitFor bool) {
+// WaitForBoolValue waits for the boolean to reach a certain value.
+func WaitForBoolValue(t *testing.T, val *atomic.Bool, waitFor bool) {
 	timeout := time.After(15 * time.Second)
 	for {
 		select {
@@ -32,7 +33,7 @@ func WaitForBoolValue(t *testing.T, val *bool, waitFor bool) {
 			require.Failf(t, "Failed waiting for bool value", "Timed out waiting for the boolean to become %v", waitFor)
 			return
 		default:
-			if *val == waitFor {
+			if val.Load() == waitFor {
 				return
 			}
 			time.Sleep(100 * time.Millisecond)
