@@ -32,16 +32,17 @@ import (
 )
 
 var (
-	primary         *vitesst.Tablet
-	replica1        *vitesst.Tablet
-	replica2        *vitesst.Tablet
-	replica3        *vitesst.Tablet
-	localCluster    *vitesst.Cluster
-	cell            = "zone1"
-	keyspaceName    = "ks"
-	dbName          = "vt_" + keyspaceName
-	shardName       = "0"
-	commonTabletArg = []string{
+	primary           *vitesst.Tablet
+	replica1          *vitesst.Tablet
+	replica2          *vitesst.Tablet
+	replica3          *vitesst.Tablet
+	localCluster      *vitesst.Cluster
+	clusterTabletArgs []string
+	cell              = "zone1"
+	keyspaceName      = "ks"
+	dbName            = "vt_" + keyspaceName
+	shardName         = "0"
+	commonTabletArg   = []string{
 		"--vreplication-retry-delay", "1s",
 		"--degraded-threshold", "5s",
 		"--lock-tables-timeout", "5s",
@@ -96,13 +97,15 @@ func Setup(t *testing.T, useXtrabackup bool) {
 	if useXtrabackup {
 		tabletArgs = append(tabletArgs, recovery.XbArgs...)
 	}
+	clusterTabletArgs = tabletArgs
 
 	keyspace := vitesst.WithKeyspace(keyspaceName).
 		WithShardNames(shardName).
 		WithReplicas(3).
 		WithDurabilityPolicy("semi_sync")
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithCells(cell),
 		vitesst.WithBackupStorage(),
 		vitesst.WithoutVTGate(),
@@ -321,7 +324,9 @@ func restoreTablet(t *testing.T, tablet *vitesst.Tablet, restoreKSName string, r
 		require.NoError(t, err)
 	}
 
-	replicaTabletArgs := slices.Clone(commonTabletArg)
+	// Restart with the same args the cluster tablets booted with, so the
+	// tablet keeps its database credentials and backup engine settings.
+	replicaTabletArgs := slices.Clone(clusterTabletArgs)
 	replicaTabletArgs = append(
 		replicaTabletArgs,
 		"--enable-replication-reporter=false",
