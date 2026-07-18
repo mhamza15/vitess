@@ -155,7 +155,8 @@ func setup(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithVTCtldArgs(
 			"--schema-change-dir", schemaChangeDirectory,
 			"--schema-change-controller", "local",
@@ -257,9 +258,14 @@ func TestVreplMiniStressSchemaChanges(t *testing.T) {
 			})
 			t.Run("migrate", func(t *testing.T) {
 				ctx, cancel := context.WithCancel(ctx)
-				defer cancel()
 
 				var wg sync.WaitGroup
+				// A failed require would otherwise leave the workload
+				// goroutines asserting on a completed test.
+				defer func() {
+					cancel()
+					wg.Wait()
+				}()
 				wg.Go(func() {
 					runMultipleConnections(ctx, t)
 				})
@@ -480,6 +486,11 @@ func runSingleConnection(ctx context.Context, t *testing.T, sleepInterval time.D
 			log.Info("Terminating single connection")
 			return
 		case <-ticker.C:
+		}
+		if err != nil && ctx.Err() != nil {
+			// The workload is being terminated, so query errors are expected.
+			log.Info("Terminating single connection")
+			return
 		}
 		assert.Nil(t, err)
 	}

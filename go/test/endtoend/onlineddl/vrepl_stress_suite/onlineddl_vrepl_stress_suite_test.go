@@ -433,7 +433,8 @@ func setup(t *testing.T) {
 	// this test suite, and so the low setting ensures we hit the more interesting code paths.
 	//
 	// No need for replicas in this stress test
-	newCluster, err := vitesst.NewCluster(t,
+	newCluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithCells(cell),
 		vitesst.WithVTCtldArgs(
 			"--schema-change-dir", schemaChangeDirectory,
@@ -510,6 +511,12 @@ func TestVreplStressSchemaChanges(t *testing.T) {
 
 				ctx, cancel := context.WithCancel(t.Context())
 				var wg sync.WaitGroup
+				// A failed require would otherwise leave the workload
+				// goroutines asserting on a completed test.
+				defer func() {
+					cancel()
+					wg.Wait()
+				}()
 				wg.Go(func() {
 					runMultipleConnections(ctx, t, testcase.autoIncInsert)
 				})
@@ -693,6 +700,11 @@ func runSingleConnection(ctx context.Context, t *testing.T, autoIncInsert bool, 
 			err = generateDelete(t, conn)
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				// The workload is being terminated, so query errors are expected.
+				log.Info("Terminating single connection")
+				return
+			}
 			if strings.Contains(err.Error(), "doesn't exist") {
 				// Table renamed to _before, due to -vreplication-test-suite flag
 				err = nil
