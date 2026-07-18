@@ -962,12 +962,14 @@ func (throttler *Throttler) readSelfThrottleMetricsInternal(ctx context.Context,
 		if metricName == base.DefaultMetricName {
 			continue
 		}
-		metric := readMetric(selfMetric)
+		// Some self metrics return a shared cached object, so stamp and send a
+		// copy rather than mutating the returned metric.
+		metric := *readMetric(selfMetric)
 		metric.Name = metricName
 		metric.Alias = throttler.tabletAliasString()
 
-		go writeMetric(metric)
-		result[metricName] = metric
+		go writeMetric(&metric)
+		result[metricName] = &metric
 	}
 
 	return result
