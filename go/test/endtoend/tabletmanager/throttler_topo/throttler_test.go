@@ -351,6 +351,14 @@ func TestLag(t *testing.T) {
 
 	ctx := t.Context()
 
+	// The test expects an enabled throttler with the default threshold.
+	req := &vtctldatapb.UpdateThrottlerConfigRequest{Enable: true, Threshold: defaultThreshold.Seconds()}
+	_, err := updateThrottlerTopoConfig(ctx, req, nil, nil)
+	require.NoError(t, err)
+	for _, tablet := range clusterInstance.Keyspace(keyspaceName).Shard(shardName).Tablets() {
+		waitForThrottlerStatusEnabled(ctx, t, tablet, true, defaultConfig, throttlerEnabledTimeout)
+	}
+
 	// Temporarily disable VTOrc recoveries because we want to
 	// STOP replication specifically in order to increase the
 	// lag and we DO NOT want VTOrc to try and fix this.
