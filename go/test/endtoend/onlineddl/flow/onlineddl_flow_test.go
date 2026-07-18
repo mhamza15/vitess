@@ -121,7 +121,8 @@ func setup(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithVTCtldArgs(
 			"--schema-change-dir", schemaChangeDirectory,
 			"--schema-change-controller", "local",
@@ -205,37 +206,33 @@ func TestOnlineDDLFlow(t *testing.T) {
 			workloadCtx, cancelWorkload := context.WithCancel(ctx)
 			defer cancelWorkload()
 
-			t.Run("routine throttler check", func(t *testing.T) {
-				go func() {
-					ticker := time.NewTicker(500 * time.Millisecond)
-					defer ticker.Stop()
-					for {
-						resp, err := checkThrottler(context.WithoutCancel(workloadCtx), primaryTablet, throttlerapp.OnlineDDLName)
-						if !assert.NoError(t, err) {
-							return
-						}
-						throttleWorkload.Store(resp.Check.ResponseCode != tabletmanagerdatapb.CheckThrottlerResponseCode_OK)
-						select {
-						case <-ticker.C:
-						case <-workloadCtx.Done():
-							fmt.Println("Terminating routine throttler check")
-							return
-						}
+			// The routine throttler check and workload goroutines outlive any
+			// subtest, so they assert on the enclosing test.
+			go func() {
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					resp, err := checkThrottler(context.WithoutCancel(workloadCtx), primaryTablet, throttlerapp.OnlineDDLName)
+					if !assert.NoError(t, err) {
+						return
 					}
-				}()
-			})
+					throttleWorkload.Store(resp.Check.ResponseCode != tabletmanagerdatapb.CheckThrottlerResponseCode_OK)
+					select {
+					case <-ticker.C:
+					case <-workloadCtx.Done():
+						fmt.Println("Terminating routine throttler check")
+						return
+					}
+				}
+			}()
 
+			// Create work for vplayer.
+			// This workload will consider throttling state and avoid generating DMLs if throttled.
 			var wg sync.WaitGroup
-			t.Run("generate workload", func(t *testing.T) {
-				// Create work for vplayer.
-				// This workload will consider throttling state and avoid generating DMLs if throttled.
-				wg.Add(1)
-				go func() {
-					defer cancel()
-					defer wg.Done()
-					defer fmt.Println("Terminating workload")
-					runMultipleConnections(workloadCtx, t)
-				}()
+			wg.Go(func() {
+				defer cancel()
+				defer fmt.Println("Terminating workload")
+				runMultipleConnections(workloadCtx, t)
 			})
 			appliedDMLStart := totalAppliedDML.Load()
 
