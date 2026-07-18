@@ -135,7 +135,8 @@ func TestVaultAuth(t *testing.T) {
 	}
 	caFile := vitesst.ContainerFile{HostPath: filepath.Join(certDir, caCertFile), ContainerPath: "/vt/files/vault-ca.pem"}
 
-	clusterInstance, err := vitesst.NewCluster(t,
+	clusterInstance, err := vitesst.NewCluster(
+		t,
 		vitesst.WithNetwork(nw),
 		vitesst.WithVTTabletArgs(commonTabletArg...),
 		vitesst.WithVTTabletArgs(vaultTabletArg...),
@@ -176,13 +177,36 @@ func TestVaultAuth(t *testing.T) {
 
 	// Check the primary tablet log for the Vault token renewal message.
 	//   If we don't see it, that is a test failure.
+	// The message is only logged when the tablet fetches credentials for a new
+	// mysqld connection, so kill its pooled connections while waiting to force
+	// reconnects.
 	require.Eventually(t, func() bool {
+		killVaultUserConnections(ctx, t, primary)
+
 		logs, err := primary.Logs(ctx)
 		if err != nil {
 			return false
 		}
 		return strings.Contains(logs, tokenRenewalString)
-	}, 90*time.Second, time.Second, "expected %q in primary tablet logs", tokenRenewalString)
+	}, 90*time.Second, 5*time.Second, "expected %q in primary tablet logs", tokenRenewalString)
+}
+
+// killVaultUserConnections kills the tablet's mysqld connections for the users
+// whose passwords come from Vault, forcing the tablet to reconnect.
+func killVaultUserConnections(ctx context.Context, t *testing.T, tablet *vitesst.Tablet) {
+	t.Helper()
+
+	qr, err := tablet.QueryTabletWithDB(ctx,
+		"select id from information_schema.processlist where user in ('vt_app', 'vt_allprivs', 'vt_filtered')", "")
+	if err != nil {
+		t.Logf("listing vault user connections: %v", err)
+		return
+	}
+	for _, row := range qr.Rows {
+		if _, err := tablet.QueryTabletWithDB(ctx, "kill "+row[0].ToString(), ""); err != nil {
+			t.Logf("killing connection %s: %v", row[0].ToString(), err)
+		}
+	}
 }
 
 // verifyRowsInTabletForTable polls a tablet's mysqld until the table holds the
