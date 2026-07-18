@@ -1,0 +1,237 @@
+name: e2e lane
+
+on:
+  workflow_call:
+    inputs:
+      race:
+        description: Build race-instrumented images and run tests with the race detector.
+        required: true
+        type: boolean
+
+env:
+  EXCLUDE_PACKAGES: |
+    vitess.io/vitess/go/test/endtoend/binlogdump
+    vitess.io/vitess/go/test/endtoend/transaction/twopc/fuzz
+    vitess.io/vitess/go/test/endtoend/docker
+    vitess.io/vitess/go/test/endtoend/vtcombo
+    vitess.io/vitess/go/test/endtoend/vtcombo/recreate
+    vitess.io/vitess/go/test/endtoend/utils
+    vitess.io/vitess/go/test/endtoend/transaction/twopc
+    vitess.io/vitess/go/test/endtoend/transaction/twopc/metric
+
+  PARTITIONS: 64
+
+jobs:
+  build-images:
+    name: Build images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push images
+        env:
+          RACE: ${{ inputs.race }}
+
+        run: |
+          BAKE_ARGS='--set *.platform=linux/amd64 --set *.cache-from=type=gha,scope=vitesst --set *.cache-to=type=gha,mode=max,scope=vitesst'
+          if [[ "$RACE" == "true" ]]; then
+            BAKE_ARGS+=' --set *.args.RACE=1'
+          fi
+
+          make -s NOBANNER=1 vitesst_images BAKE_ARGS="$BAKE_ARGS"
+
+          suffix=''
+          if [[ "$RACE" == "true" ]]; then
+            suffix='-race'
+          fi
+
+          repo="ghcr.io/${GITHUB_REPOSITORY@L}/vitesst"
+          for flavor in mysql80 mysql84 mariadb; do
+            docker tag "vitesst:$flavor" "$repo:$flavor-$GITHUB_SHA$suffix"
+            docker push -q "$repo:$flavor-$GITHUB_SHA$suffix"
+          done
+
+  generate-matrix:
+    name: Generate shard matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      actions: read
+
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
+        with:
+          go-version-file: go.mod
+
+      - name: Download timing data from the latest main run
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch main \
+            --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+
+          if [[ -n "$run_id" ]]; then
+            gh run download --repo "$GITHUB_REPOSITORY" "$run_id" --pattern 'e2e-timing-*' --dir timing || true
+          fi
+
+      - name: Generate shard matrix
+        id: matrix
+        env:
+          RACE: ${{ inputs.race }}
+
+        run: |
+          set -o pipefail
+          matrix=$(go list ./go/test/endtoend/... \
+            | grep -vFx -f <(printf '%s' "$EXCLUDE_PACKAGES") \
+            | go tool -modfile=tools/gotestsum/go.mod gotestsum tool ci-matrix \
+                --partitions "$PARTITIONS" --timing-files './timing/**/*.log')
+
+          suffix=''
+          if [[ "$RACE" == "true" ]]; then
+            suffix='-race'
+          fi
+
+          echo "matrix=$(jq -c --arg suffix "$suffix" '.include |= map(
+            (.packages | split(" ") | map(sub("^vitess.io/vitess/go/test/endtoend/"; "")) | join(", ")) as $pkgs
+            | . + {id: "\(.id)\($suffix)", description: "Shard \(.id) - \($pkgs)"}
+          )' <<<"$matrix")" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: ${{ matrix.description }}
+    needs: [build-images, generate-matrix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    permissions:
+      contents: read
+      packages: read
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: "false"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning]
+        with:
+          go-version-file: go.mod
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull images
+        env:
+          RACE: ${{ inputs.race }}
+
+        run: |
+          suffix=''
+          if [[ "$RACE" == "true" ]]; then
+            suffix='-race'
+          fi
+
+          repo="ghcr.io/${GITHUB_REPOSITORY@L}/vitesst"
+          for flavor in mysql80 mysql84 mariadb; do
+            docker pull -q "$repo:$flavor-$GITHUB_SHA$suffix"
+            docker tag "$repo:$flavor-$GITHUB_SHA$suffix" "vitesst:$flavor"
+          done
+
+      - name: Run tests
+        env:
+          PKG: ${{ matrix.packages }}
+          RACE: ${{ inputs.race }}
+
+        run: |
+          set -o pipefail
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
+          if [[ "$RACE" == "true" ]]; then
+            GOTEST_FLAGS+=' -race'
+          fi
+
+          make -s NOBANNER=1 e2e SKIP_IMAGE_BUILD=1 PKG="$PKG" GOTEST_FLAGS="$GOTEST_FLAGS" \
+            | go tool -modfile=tools/gotestsum/go.mod gotestsum \
+                --raw-command --format github-actions --jsonfile timing.log -- cat
+
+      - name: Upload timing data
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.race
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-timing-${{ matrix.id }}
+          path: timing.log
+          retention-days: 7
+
+      - name: Keep only failed test artifacts
+        if: failure()
+        run: |
+          keep=$(jq -rs '
+            def key: .Package + "/" + .Test;
+            map(select(.Test != null)) as $tests
+            | ($tests | map(select(.Action == "run") | key)) as $started
+            | ($tests | map(select(.Action == "pass" or .Action == "skip") | key)) as $done
+            | ($started - $done) as $keep
+            | $tests[]
+            | select(.Action == "artifacts" and (key as $k | $keep | index($k)))
+            | .Path + "\t" + (key | gsub("[^A-Za-z0-9._-]+"; "_"))
+          ' timing.log) || exit 0
+
+          [[ -n "$keep" ]] || exit 0
+
+          mkdir -p failed-artifacts
+          while IFS=$'\t' read -r path name; do
+            if [[ -d "$path" ]]; then
+              mv "$path" "failed-artifacts/$name"
+            fi
+          done <<<"$keep"
+
+          if [[ -n "$(ls -A failed-artifacts)" ]]; then
+            rm -rf artifacts/_artifacts
+            mv failed-artifacts artifacts/_artifacts
+          fi
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-artifacts-${{ matrix.id }}
+          path: artifacts
+          retention-days: 7
