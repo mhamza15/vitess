@@ -72,6 +72,10 @@ func TestStartReplicationUntilAfter(t *testing.T) {
 	setup(t)
 	ctx := t.Context()
 
+	// The test stops replication on purpose, so VTOrc must not repair it.
+	disableVTOrcRecoveries(t)
+	defer enableVTOrcRecoveries(t)
+
 	conn, err := mysql.Connect(ctx, &primaryTabletParams)
 	require.Nil(t, err)
 	defer conn.Close()
