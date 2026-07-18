@@ -17,10 +17,13 @@ limitations under the License.
 package vitesst
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -57,6 +60,36 @@ func (fc *fileLogConsumer) close() {
 	if fc.f != nil {
 		fc.f.Close()
 		fc.f = nil
+	}
+}
+
+// finalLogTimeout bounds fetching a container's complete log during teardown.
+const finalLogTimeout = 10 * time.Second
+
+// dumpContainerLogs overwrites the named artifact log file with the
+// container's complete log. The streaming consumer can miss a crashing
+// process's final output, so teardown rewrites the file from the container's
+// full log before the container is removed.
+func (c *Cluster) dumpContainerLogs(ctx context.Context, ctr testcontainers.Container, name string) {
+	ctx, cancel := context.WithTimeout(ctx, finalLogTimeout)
+	defer cancel()
+
+	rc, err := ctr.Logs(ctx)
+	if err != nil {
+		c.logf("fetching final %s logs: %v", name, err)
+		return
+	}
+	defer rc.Close()
+
+	f, err := os.OpenFile(filepath.Join(c.artifactDir, name+".log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		c.logf("opening final %s log file: %v", name, err)
+		return
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, rc); err != nil {
+		c.logf("writing final %s logs: %v", name, err)
 	}
 }
 

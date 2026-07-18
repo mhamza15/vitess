@@ -23,6 +23,8 @@ package vitesst_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -382,6 +384,44 @@ func TestVTGateRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, qr.Rows, 1)
 	assert.Equal(t, "before-restart", qr.Rows[0][0].ToString())
+}
+
+// TestTerminateCapturesFinalLogs crashes vtgate right after it writes a
+// marker to its stdout, so the marker is in the log lines a crashing process
+// emits in its final moments. Teardown must still deliver it to the artifact
+// log.
+func TestTerminateCapturesFinalLogs(t *testing.T) {
+	t.Parallel()
+
+	c, err := vitesst.NewCluster(t,
+		vitesst.WithKeyspace("ks").WithSchema(selfTestSchema),
+	)
+	require.NoError(t, err)
+	cleanup, err := c.Start(t, t.Context())
+	t.Cleanup(func() {
+		ctx := context.WithoutCancel(t.Context())
+		if err := cleanup(ctx); err != nil {
+			t.Logf("cluster teardown: %v", err)
+		}
+	})
+	require.NoError(t, err)
+
+	const marker = "vitesst-final-log-marker"
+	vtg := c.VTGate()
+	code, out, err := vtg.Exec(t.Context(), "sh", "-c", fmt.Sprintf("echo %s >> /proc/1/fd/1 && kill -QUIT 1", marker))
+	require.NoError(t, err)
+	require.Zero(t, code, out)
+
+	require.Eventually(t, func() bool {
+		_, _, err := vtg.MakeAPICall(t.Context(), "/debug/vars")
+		return err != nil
+	}, 30*time.Second, 100*time.Millisecond, "vtgate should stop serving after its process is killed")
+
+	require.NoError(t, cleanup(context.WithoutCancel(t.Context())))
+
+	content, err := os.ReadFile(filepath.Join(t.ArtifactDir(), "vtgate.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), marker)
 }
 
 func TestNewMySQLComparison(t *testing.T) {

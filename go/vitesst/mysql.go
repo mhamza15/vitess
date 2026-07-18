@@ -98,6 +98,7 @@ GRANT ALL ON *.* TO '%s'@'%%' WITH GRANT OPTION;
 		return mysql.ConnParams{}, nil, fmt.Errorf("starting comparison mysqld: %w", err)
 	}
 	cleanup := func(ctx context.Context) error {
+		cluster.dumpContainerLogs(ctx, ctr, name)
 		return testcontainers.TerminateContainer(ctr, testcontainers.StopContext(ctx), testcontainers.StopTimeout(0))
 	}
 

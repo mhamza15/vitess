@@ -263,12 +263,14 @@ func (cp *component) IsRunning() bool {
 	return ctr != nil && ctr.IsRunning()
 }
 
-// terminate tears the component's container down immediately.
+// terminate tears the component's container down immediately, after writing
+// the container's complete log to the artifact directory.
 func (cp *component) terminate(ctx context.Context) error {
 	ctr := cp.setContainer(nil)
 	if ctr == nil {
 		return nil
 	}
+	cp.cluster.dumpContainerLogs(ctx, ctr, cp.name)
 	return testcontainers.TerminateContainer(ctr, testcontainers.StopContext(ctx), testcontainers.StopTimeout(0))
 }
 
