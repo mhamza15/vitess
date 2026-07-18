@@ -159,25 +159,25 @@ func TestAutoIncInsertSelectOlapMode(t *testing.T) {
 	}{{
 		query:           "insert into user_tbl(region_id, name) select region_id, name from user_tbl",
 		expRowsAffected: 2,
-		expInsertID:     8,
+		expInsertID:     3,
 	}, {
-		query:           "insert into user_tbl(id, region_id, name) select null, region_id, name from user_tbl where id = 8",
+		query:           "insert into user_tbl(id, region_id, name) select null, region_id, name from user_tbl where id = 1",
 		expRowsAffected: 1,
-		expInsertID:     10,
+		expInsertID:     5,
 	}, {
-		query:           "insert into user_tbl(id, region_id, name) select 100, region_id, name from user_tbl where id = 8",
+		query:           "insert into user_tbl(id, region_id, name) select 100, region_id, name from user_tbl where id = 1",
 		expRowsAffected: 1,
 		expInsertID:     0,
 	}, {
 		// auto-inc column as sharding column
 		query:           "insert into auto_tbl(id) select 10 union select null",
 		expRowsAffected: 2,
-		expInsertID:     668,
+		expInsertID:     666,
 	}, {
 		// auto-inc column as sharding column
 		query:           "insert into auto_tbl(unq_col) select null",
 		expRowsAffected: 1,
-		expInsertID:     669,
+		expInsertID:     667,
 	}}
 
 	for _, tcase := range tcases {
@@ -188,7 +188,7 @@ func TestAutoIncInsertSelectOlapMode(t *testing.T) {
 		})
 	}
 
-	vitesst.AssertMatches(t, mcmp.VtConn, `select id from user_tbl order by id`, `[[INT64(6)] [INT64(7)] [INT64(8)] [INT64(9)] [INT64(10)] [INT64(100)]]`)
+	vitesst.AssertMatches(t, mcmp.VtConn, `select id from user_tbl order by id`, `[[INT64(1)] [INT64(2)] [INT64(3)] [INT64(4)] [INT64(5)] [INT64(100)]]`)
 }
 
 func TestUnownedVindexInsertSelect(t *testing.T) {
