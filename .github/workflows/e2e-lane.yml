@@ -116,7 +116,7 @@ jobs:
 
           echo "matrix=$(jq -c --arg suffix "$suffix" '.include |= map(
             (.packages | split(" ") | map(sub("^vitess.io/vitess/go/test/endtoend/"; "")) | join(", ")) as $pkgs
-            | . + {id: "\(.id)\($suffix)", description: "Shard \(.id) - \($pkgs)"}
+            | . + {id: "\(.id)\($suffix)", description: "Shard \((.id | tonumber) + 1) - \($pkgs)"}
           )' <<<"$matrix")" >> "$GITHUB_OUTPUT"
 
   test:
