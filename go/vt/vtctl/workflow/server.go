@@ -2093,13 +2093,14 @@ func (s *Server) checkIfPreviousJournalExists(ctx context.Context, mz *materiali
 		if tablet == nil {
 			return nil
 		}
-		_, exists, err = s.CheckReshardingJournalExistsOnTablet(ctx, tablet.Tablet, migrationID)
+		_, journalExists, err := s.CheckReshardingJournalExistsOnTablet(ctx, tablet.Tablet, migrationID)
 		if err != nil {
 			return err
 		}
-		if exists {
+		if journalExists {
 			mu.Lock()
 			defer mu.Unlock()
+			exists = true
 			tablets = append(tablets, tablet.AliasString())
 		}
 		return nil
