@@ -256,7 +256,8 @@ func setup(t *testing.T) {
 	ctx := t.Context()
 
 	// No need for replicas in this stress test
-	newCluster, err := vitesst.NewCluster(t,
+	newCluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithCells(cell),
 		vitesst.WithVTCtldArgs(
 			"--schema-change-dir", schemaChangeDirectory,
@@ -1232,11 +1233,12 @@ func testScheduler(t *testing.T) {
 				waitForReadyToComplete(t, t1uuid, true)
 			})
 
+			// Lock table rows in a transaction. The goroutine outlives any
+			// subtest, so it asserts on the enclosing test.
 			commitTransactionChan := make(chan any)
 			transactionErrorChan := make(chan error)
-			t.Run("locking table rows", func(t *testing.T) {
-				go runInTransaction(t, ctx, primaryTablet, "select * from t1_test for update", commitTransactionChan, transactionErrorChan)
-			})
+			go runInTransaction(t, ctx, primaryTablet, "select * from t1_test for update", commitTransactionChan, transactionErrorChan)
+
 			t.Run("injecting heartbeats asynchronously", func(t *testing.T) {
 				go func() {
 					ticker := time.NewTicker(time.Second)
@@ -1394,11 +1396,11 @@ func testScheduler(t *testing.T) {
 				onlineddl.VtgateExecQuery(t, &vtParams, populateT1Statement, "")
 			})
 
+			// Lock table rows in a transaction. The goroutine outlives any
+			// subtest, so it asserts on the enclosing test.
 			commitTransactionChan := make(chan any)
 			transactionErrorChan := make(chan error)
-			t.Run("locking table rows", func(t *testing.T) {
-				go runInTransaction(t, ctx, primaryTablet, "select * from t1_test for update", commitTransactionChan, transactionErrorChan)
-			})
+			go runInTransaction(t, ctx, primaryTablet, "select * from t1_test for update", commitTransactionChan, transactionErrorChan)
 
 			t.Run("execute migration", func(t *testing.T) {
 				t1uuid = testOnlineDDLStatement(t, createParams(instantAlterT1Statement, ddlStrategy+" --prefer-instant-ddl --force-cut-over-after=1ms", "vtgate", "", "", true)) // skip wait
@@ -4177,10 +4179,10 @@ func runInTransaction(t *testing.T, ctx context.Context, tablet *vitesst.Tablet,
 		return err
 	}
 
-	_, err = conn.ExecuteFetch(query, 10000, false)
-	if !assert.NoError(t, err) {
-		return err
-	}
+	// A force cut-over may legitimately kill the connection mid-query, so the
+	// query error is reported through transactionErrorChan for the caller to
+	// judge rather than asserted here.
+	_, queryErr := conn.ExecuteFetch(query, 10000, false)
 
 	if commitTransactionChan != nil {
 		// Wait for instruction to commit
@@ -4192,7 +4194,10 @@ func runInTransaction(t *testing.T, ctx context.Context, tablet *vitesst.Tablet,
 		}
 	}
 
-	_, err = conn.ExecuteFetch("commit", 0, false)
+	err = queryErr
+	if err == nil {
+		_, err = conn.ExecuteFetch("commit", 0, false)
+	}
 	if transactionErrorChan != nil {
 		transactionErrorChan <- err
 	}
