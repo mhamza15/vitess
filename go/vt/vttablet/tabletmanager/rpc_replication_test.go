@@ -167,7 +167,8 @@ func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
 	fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(500) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 		"Rpl_semi_sync_source_wait_sessions|1",
-		"Rpl_semi_sync_source_yes_tx|5"))
+		"Rpl_semi_sync_source_yes_tx|5",
+	))
 
 	// Verify that in the beginning the tablet is serving.
 	require.True(t, tm.QueryServiceControl.IsServing())
@@ -197,7 +198,8 @@ func TestDemotePrimaryWaitingForSemiSyncUnblock(t *testing.T) {
 	fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(1000) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 		"Rpl_semi_sync_source_wait_sessions|0",
-		"Rpl_semi_sync_source_yes_tx|5"))
+		"Rpl_semi_sync_source_yes_tx|5",
+	))
 	close(ch)
 
 	// This should unblock the demote primary operation eventually.
@@ -232,14 +234,16 @@ func TestDemotePrimaryWithSemiSyncProgressDetection(t *testing.T) {
 		fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(1000) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 			"Rpl_semi_sync_source_wait_sessions|1",
-			"Rpl_semi_sync_source_yes_tx|5"))
+			"Rpl_semi_sync_source_yes_tx|5",
+		))
 	}
 	// Next calls: waiting sessions present, but ackedTrxs=6 (progress!).
 	for range 10 {
 		fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(1000) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 			"Rpl_semi_sync_source_wait_sessions|1",
-			"Rpl_semi_sync_source_yes_tx|6"))
+			"Rpl_semi_sync_source_yes_tx|6",
+		))
 	}
 
 	// Verify that in the beginning the tablet is serving.
@@ -293,13 +297,15 @@ func TestDemotePrimaryWhenSemiSyncBecomesUnblockedBetweenChecks(t *testing.T) {
 	fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(1000) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 		sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 		"Rpl_semi_sync_source_wait_sessions|2",
-		"Rpl_semi_sync_source_yes_tx|5"))
+		"Rpl_semi_sync_source_yes_tx|5",
+	))
 	// Second and subsequent calls: no waiting sessions (unblocked!).
 	for range 10 {
 		fakeDb.AddQuery("SELECT /*+ MAX_EXECUTION_TIME(1000) */ variable_name, variable_value FROM performance_schema.global_status WHERE REGEXP_LIKE(variable_name, 'Rpl_semi_sync_(source|master)_(wait_sessions|yes_tx)')", sqltypes.MakeTestResult(
 			sqltypes.MakeTestFields("variable_name|variable_value", "varchar|varchar"),
 			"Rpl_semi_sync_source_wait_sessions|0",
-			"Rpl_semi_sync_source_yes_tx|5"))
+			"Rpl_semi_sync_source_yes_tx|5",
+		))
 	}
 
 	// Verify that in the beginning the tablet is serving.
@@ -516,6 +522,7 @@ func TestSetReplicationSourceRecovery(t *testing.T) {
 		fakeMysqlDaemon.SetReplicationSourceInputs = []string{"mysql-primary:3306"}
 		fakeMysqlDaemon.StartReplicationError = recoverableReplicationInitError()
 		fakeMysqlDaemon.ExpectedExecuteSuperQueryList = []string{
+			"STOP REPLICA",
 			"FAKE RESET BINARY LOGS AND GTIDS",
 			"FAKE SET GLOBAL gtid_purged",
 			"FAKE SET SOURCE",
@@ -531,6 +538,46 @@ func TestSetReplicationSourceRecovery(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "mysql-primary", fakeMysqlDaemon.CurrentSourceHost)
 		require.EqualValues(t, 3306, fakeMysqlDaemon.CurrentSourcePort)
+		require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
+	})
+
+	t.Run("InitReplica stops running replication before configuring the source", func(t *testing.T) {
+		ctx := t.Context()
+		ts := memorytopo.NewServer(ctx, "cell1")
+
+		_, err := ts.GetOrCreateShard(ctx, "ks", "0")
+		require.NoError(t, err)
+
+		parent := &topodatapb.Tablet{
+			Alias: &topodatapb.TabletAlias{
+				Cell: "cell1",
+				Uid:  200,
+			},
+			Keyspace:      "ks",
+			Shard:         "0",
+			Type:          topodatapb.TabletType_PRIMARY,
+			MysqlHostname: "mysql-primary",
+			MysqlPort:     3306,
+		}
+		require.NoError(t, ts.CreateTablet(ctx, parent))
+
+		// The tablet is already replicating, as when the shard sync loop demoted
+		// an old primary and started replication concurrently with InitReplica.
+		fakeMysqlDaemon := newTestMysqlDaemon(t, 1)
+		fakeMysqlDaemon.Replicating = true
+		fakeMysqlDaemon.SetReplicationSourceInputs = []string{"mysql-primary:3306"}
+		fakeMysqlDaemon.ExpectedExecuteSuperQueryList = []string{
+			"STOP REPLICA",
+			"FAKE RESET BINARY LOGS AND GTIDS",
+			"FAKE SET GLOBAL gtid_purged",
+			"FAKE SET SOURCE",
+			"START REPLICA",
+		}
+
+		tm := newTestReplicationTM(newTestTablet(t, 100, "ks", "0", nil), fakeMysqlDaemon, ts)
+
+		err = tm.InitReplica(ctx, parent.Alias, "", 0, false)
+		require.NoError(t, err)
 		require.NoError(t, fakeMysqlDaemon.CheckSuperQueryList())
 	})
 

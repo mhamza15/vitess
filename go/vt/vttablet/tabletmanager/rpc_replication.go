@@ -522,6 +522,14 @@ func (tm *TabletManager) InitReplica(ctx context.Context, parent *topodatapb.Tab
 		return err
 	}
 
+	// The shard sync loop demotes an old primary as soon as it sees the new
+	// primary in the shard record, and may have already configured and started
+	// replication. Stop replication so the position reset and source change
+	// below do not fail on running replication threads.
+	if err := tm.MysqlDaemon.StopReplication(ctx, tm.hookExtraEnv()); err != nil {
+		return err
+	}
+
 	if err := tm.MysqlDaemon.SetReplicationPosition(ctx, pos); err != nil {
 		return err
 	}
