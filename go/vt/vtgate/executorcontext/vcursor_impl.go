@@ -747,7 +747,7 @@ func (vc *VCursorImpl) ExecutePrimitive(ctx context.Context, primitive engine.Pr
 		}
 		vc.logOpTraffic(primitive, res)
 		if res != nil && res.InsertIDUpdated() {
-			vc.SafeSession.LastInsertId = res.InsertID
+			vc.SafeSession.SetLastInsertId(res.InsertID)
 		}
 		return res, err
 	}
@@ -798,7 +798,7 @@ func (vc *VCursorImpl) wrapCallback(callback func(*sqltypes.Result) error, primi
 	if vc.interOpStats == nil {
 		return func(r *sqltypes.Result) error {
 			if r.InsertIDUpdated() {
-				vc.SafeSession.LastInsertId = r.InsertID
+				vc.SafeSession.SetLastInsertId(r.InsertID)
 			}
 			return callback(r)
 		}
@@ -806,7 +806,7 @@ func (vc *VCursorImpl) wrapCallback(callback func(*sqltypes.Result) error, primi
 
 	return func(r *sqltypes.Result) error {
 		if r.InsertIDUpdated() {
-			vc.SafeSession.LastInsertId = r.InsertID
+			vc.SafeSession.SetLastInsertId(r.InsertID)
 		}
 		vc.logOpTraffic(primitive, r)
 		return callback(r)
@@ -898,7 +898,7 @@ func (vc *VCursorImpl) ExecuteMultiShard(ctx context.Context, primitive engine.P
 	vc.setRollbackOnPartialExecIfRequired(len(errs) != len(rss), rollbackOnError)
 	vc.logShardsQueried(primitive, len(rss))
 	if qr != nil && qr.InsertIDUpdated() {
-		vc.SafeSession.LastInsertId = qr.InsertID
+		vc.SafeSession.SetLastInsertId(qr.InsertID)
 	}
 	return qr, errs
 }
@@ -940,7 +940,7 @@ func (vc *VCursorImpl) ExecuteStandalone(ctx context.Context, primitive engine.P
 	qr, errs := vc.executor.ExecuteMultiShard(ctx, primitive, rss, bqs, NewAutocommitSession(vc.SafeSession.Session), false /* autocommit */, vc.ignoreMaxMemoryRows, vc.observer, fetchLastInsertID)
 	vc.logShardsQueried(primitive, len(rss))
 	if qr.InsertIDUpdated() {
-		vc.SafeSession.LastInsertId = qr.InsertID
+		vc.SafeSession.SetLastInsertId(qr.InsertID)
 	}
 	return qr, vterrors.Aggregate(errs)
 }
@@ -1750,5 +1750,5 @@ func (vc *VCursorImpl) IgnoreMaxMemoryRows() bool {
 func (vc *VCursorImpl) SetLastInsertID(id uint64) {
 	vc.SafeSession.mu.Lock()
 	defer vc.SafeSession.mu.Unlock()
-	vc.SafeSession.LastInsertId = id
+	vc.SafeSession.SetLastInsertId(id)
 }

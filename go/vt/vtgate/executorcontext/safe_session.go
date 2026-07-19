@@ -233,6 +233,14 @@ func (session *SafeSession) SetFoundRows(value uint64) {
 	session.foundRowsHandled = true
 }
 
+// SetLastInsertId sets the last insert id. Stream callbacks from concurrent
+// scatter goroutines may set it, so it is written under the session mutex.
+func (session *SafeSession) SetLastInsertId(id uint64) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.LastInsertId = id
+}
+
 // SetInDMLExecution set the `inDMLExecution` value.
 func (session *SafeSession) SetInDMLExecution(inDMLExec bool) {
 	session.mu.Lock()
