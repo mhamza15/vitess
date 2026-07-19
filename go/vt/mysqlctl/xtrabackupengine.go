@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/shlex"
@@ -689,7 +691,7 @@ func (be *XtrabackupEngine) extractFiles(ctx context.Context, logger logutil.Log
 		}
 	}()
 
-	reader := stripeReader(srcReaders, int64(bm.StripeBlockSize))
+	reader, stripeErr := stripeReader(srcReaders, int64(bm.StripeBlockSize))
 
 	switch streamMode {
 	case streamModeTar:
@@ -720,7 +722,7 @@ func (be *XtrabackupEngine) extractFiles(ctx context.Context, logger logutil.Log
 
 		// Get exit status.
 		if err := tarCmd.Wait(); err != nil {
-			return vterrors.Wrap(err, "tar failed")
+			return vterrors.Wrap(errors.Join(err, stripeErr()), "tar failed")
 		}
 
 	case xbstream:
@@ -758,7 +760,7 @@ func (be *XtrabackupEngine) extractFiles(ctx context.Context, logger logutil.Log
 
 		// Get exit status.
 		if err := xbstreamCmd.Wait(); err != nil {
-			return vterrors.Wrap(err, "xbstream failed")
+			return vterrors.Wrap(errors.Join(err, stripeErr()), "xbstream failed")
 		}
 	default:
 		return vterrors.Errorf(vtrpc.Code_INVALID_ARGUMENT, "%v is not a valid value for xtrabackup-stream-mode, supported modes are tar and xbstream", streamMode)
@@ -910,10 +912,20 @@ func copyToStripes(writers []io.Writer, reader io.Reader, blockSize int64) (writ
 	}
 }
 
-func stripeReader(readers []io.Reader, blockSize int64) io.Reader {
+// stripeReader interleaves the striped source readers back into one stream.
+// The returned function reports the error, if any, that terminated the copy,
+// which the extraction process only ever sees as a broken stdin.
+func stripeReader(readers []io.Reader, blockSize int64) (io.Reader, func() error) {
+	var copyErr atomic.Value
+	loadErr := func() error {
+		if err, ok := copyErr.Load().(error); ok {
+			return err
+		}
+		return nil
+	}
 	if len(readers) == 1 {
 		// No striping.
-		return readers[0]
+		return readers[0], loadErr
 	}
 
 	// Make a pipe to convert our overall Writer into a Reader.
@@ -937,6 +949,7 @@ func stripeReader(readers []io.Reader, blockSize int64) io.Reader {
 				// If we failed to copy exactly blockSize bytes for any
 				// reason other than EOF, we must abort.
 				if err != io.EOF {
+					copyErr.Store(err)
 					writer.CloseWithError(err)
 					return
 				}
@@ -961,7 +974,7 @@ func stripeReader(readers []io.Reader, blockSize int64) io.Reader {
 		}
 	}()
 
-	return reader
+	return reader, loadErr
 }
 
 // ShouldDrainForBackup satisfies the BackupEngine interface

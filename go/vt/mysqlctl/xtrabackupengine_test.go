@@ -115,7 +115,8 @@ func TestStripeRoundTrip(t *testing.T) {
 
 		// Read it back and merge.
 		outBuf := &bytes.Buffer{}
-		written, err := io.Copy(outBuf, stripeReader(readers, blockSize))
+		reader, _ := stripeReader(readers, blockSize)
+		written, err := io.Copy(outBuf, reader)
 		assert.NoError(t, err)
 		assert.Equal(t, dataSize, written)
 
