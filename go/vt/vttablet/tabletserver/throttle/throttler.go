@@ -184,6 +184,7 @@ type Throttler struct {
 	enableMutex         sync.Mutex
 	cancelOpenContext   context.CancelFunc
 	cancelEnableContext context.CancelFunc
+	operateWaitGroup    *sync.WaitGroup
 	throttledAppsMutex  sync.Mutex
 
 	readSelfThrottleMetrics func(context.Context, tmclient.TabletManagerClient) base.ThrottleMetrics // overwritten by unit test
@@ -526,6 +527,7 @@ func (throttler *Throttler) Enable() *sync.WaitGroup {
 	log.Info("Throttler: enabling")
 
 	wg := &sync.WaitGroup{}
+	throttler.operateWaitGroup = wg
 	var ctx context.Context
 	ctx, throttler.cancelEnableContext = context.WithCancel(context.Background())
 	throttler.check.SelfChecks(ctx)
@@ -550,6 +552,10 @@ func (throttler *Throttler) Disable() bool {
 	log.Info("Throttler: disabling")
 
 	throttler.cancelEnableContext()
+	// Wait for the Operate goroutines, including their deferred cleanup of
+	// shared state, to fully terminate before a later Enable starts a new
+	// generation over the same state.
+	throttler.operateWaitGroup.Wait()
 	return true
 }
 
