@@ -203,7 +203,9 @@ func (vcs *VaultCredentialsServer) GetUserAndPassword(user string) (string, stri
 		go func() {
 			for range vcs.vaultCacheExpireTicker.C {
 				if vcs, ok := AllCredentialsServers["vault"].(*VaultCredentialsServer); ok {
+					vcs.mu.Lock()
 					vcs.cacheValid = false
+					vcs.mu.Unlock()
 				}
 			}
 		}()
