@@ -129,7 +129,9 @@ func TestVStreamWithTablesToSkipCopyFlag(t *testing.T) {
 	require.NoError(t, insertLargeTransactionForChunkTesting(vtgateConn, defaultSourceKs, 10000))
 
 	// Stream events from the VStream API
-	reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+	reader, err := vstreamConn.VStream(streamCtx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
 	require.NoError(t, err)
 	var numRowEvents int64
 
@@ -141,7 +143,9 @@ func TestVStreamWithTablesToSkipCopyFlag(t *testing.T) {
 
 	copiedTables := make(sets.Set[string])
 	// Start reading events from the VStream.
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		for {
 			evs, err := reader.Recv()
 			switch err {
@@ -185,7 +189,9 @@ func TestVStreamWithTablesToSkipCopyFlag(t *testing.T) {
 	stopInserting := atomic.Bool{}
 	stopInserting.Store(false)
 	var insertMu sync.Mutex
+	inserterDone := make(chan struct{})
 	go func() {
+		defer close(inserterDone)
 		insertCount := 0
 		for {
 			if stopInserting.Load() {
@@ -224,6 +230,13 @@ func TestVStreamWithTablesToSkipCopyFlag(t *testing.T) {
 	stopInserting.Store(true)
 	time.Sleep(10 * time.Second) // Give the vstream plenty of time to catchup
 	done.Store(true)
+
+	// Join both goroutines before reusing the shared connection and reading
+	// what they wrote. The reader blocks in Recv on an idle stream, so cancel
+	// the stream to unblock it.
+	<-inserterDone
+	streamCancel()
+	<-readerDone
 
 	qr1, err := execVtgateQuery(vtgateConn, defaultSourceKs, "select count(*) from customer")
 	require.NoError(t, err)
@@ -454,7 +467,9 @@ func testVStreamWithFailover(t *testing.T, failover bool) {
 	defer vtgateConn.Close()
 
 	// first goroutine that keeps inserting rows into table being streamed until some time elapses after second PRS
+	inserterDone := make(chan struct{})
 	go func() {
+		defer close(inserterDone)
 		insertCount := 0
 		for {
 			if stopInserting.Load() {
@@ -480,11 +495,15 @@ func testVStreamWithFailover(t *testing.T, failover bool) {
 	}()
 
 	// stream events from the VStream API
-	reader, err := vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
+	reader, err := vstreamConn.VStream(streamCtx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
 	require.NoError(t, err)
 	var numRowEvents int64
 	// second goroutine that continuously receives events via VStream API and should be resilient to the two PRS events
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		for {
 			evs, err := reader.Recv()
 
@@ -542,6 +561,13 @@ func testVStreamWithFailover(t *testing.T, failover bool) {
 			break
 		}
 	}
+
+	// Join both goroutines before reusing the shared connection and reading
+	// the event counter they wrote. The reader blocks in Recv on an idle
+	// stream, so cancel the stream to unblock it.
+	<-inserterDone
+	streamCancel()
+	<-readerDone
 
 	qr, err := execVtgateQuery(vtgateConn, defaultSourceKs, "select count(*) from customer")
 	require.NoError(t, err)
@@ -667,15 +693,17 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 		StopOnReshard:        stopOnReshard,
 		TransactionChunkSize: 1024, // 1KB - test chunking for all transactions
 	}
-	done := false
+	var done atomic.Bool
 
 	id := 1000
 	// first goroutine that keeps inserting rows into table being streamed until a minute after reshard
 	// * if StopOnReshard is false we should keep getting events on the new shards
 	// * if StopOnReshard is true we should get a journal event and no events on the new shards
+	inserterDone := make(chan struct{})
 	go func() {
+		defer close(inserterDone)
 		for {
-			if done {
+			if done.Load() {
 				return
 			}
 			id++
@@ -684,13 +712,17 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 		}
 	}()
 	// stream events from the VStream API
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
 	var ne numEvents
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		var (
 			reader vtgateconn.VStreamReader
 			err    error
 		)
-		reader, err = vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+		reader, err = vstreamConn.VStream(streamCtx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -698,7 +730,7 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 		numErrors := 0
 		for {
 			if connect { // if vtgate returns a transient error try reconnecting from the last seen vgtid
-				reader, err = vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+				reader, err = vstreamConn.VStream(streamCtx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
 				if !assert.NoError(t, err) {
 					return
 				}
@@ -731,7 +763,7 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 				}
 			case io.EOF:
 				log.Info("Stream Ended")
-				done = true
+				done.Store(true)
 			default:
 				log.Info(fmt.Sprintf("%s:: remote error: %v", time.Now(), err))
 				numErrors++
@@ -745,10 +777,10 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 					connect = true
 				} else {
 					// failure, stop test
-					done = true
+					done.Store(true)
 				}
 			}
-			if done {
+			if done.Load() {
 				return
 			}
 		}
@@ -764,12 +796,17 @@ func testVStreamStopOnReshardFlag(t *testing.T, stopOnReshard bool, baseTabletID
 			reshard(t, "sharded", "customer", "vstreamStopOnReshard", "-80,80-",
 				"-40,40-", baseTabletID+400, nil, nil, nil, nil, defaultCellName, 1)
 		case 60:
-			done = true
+			done.Store(true)
 		}
-		if done {
+		if done.Load() {
 			break
 		}
 	}
+	// Join the goroutines before reading the events they wrote. The reader
+	// blocks in Recv on an idle stream, so cancel the stream to unblock it.
+	<-inserterDone
+	streamCancel()
+	<-readerDone
 	return &ne
 }
 

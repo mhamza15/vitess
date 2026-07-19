@@ -63,8 +63,10 @@ type (
 )
 
 const (
-	defaultTick          = 1 * time.Second
-	defaultTimeout       = 60 * time.Second
+	defaultTick = 1 * time.Second
+	// Generous for race-instrumented binaries, which apply workloads several
+	// times slower.
+	defaultTimeout       = 180 * time.Second
 	workflowStateTimeout = 90 * time.Second
 )
 
