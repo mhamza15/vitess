@@ -851,14 +851,16 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	flags := &vtgatepb.VStreamFlags{
 		TransactionChunkSize: 1024, // 1KB - test chunking for all transactions
 	}
-	done := false
+	var done atomic.Bool
 
 	id := 1000
 	// First goroutine that keeps inserting rows into the table being streamed until a minute after reshard
 	// We should keep getting events on the new shards
+	inserterDone := make(chan struct{})
 	go func() {
+		defer close(inserterDone)
 		for {
-			if done {
+			if done.Load() {
 				return
 			}
 			id++
@@ -867,11 +869,15 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 		}
 	}()
 	// stream events from the VStream API
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	defer streamCancel()
 	var ne numEvents
-	reshardDone := false
+	var reshardDone atomic.Bool
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		var reader vtgateconn.VStreamReader
-		reader, err = vstreamConn.VStream(ctx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
+		reader, err = vstreamConn.VStream(streamCtx, topodatapb.TabletType_PRIMARY, vgtid, filter, flags)
 		if !assert.NoError(t, err) {
 			return
 		}
@@ -886,7 +892,7 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 						shard := ev.RowEvent.Shard
 						switch shard {
 						case "0":
-							if reshardDone {
+							if reshardDone.Load() {
 								ne.numShard0AfterReshardEvents++
 							} else {
 								ne.numShard0BeforeReshardEvents++
@@ -907,12 +913,12 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 				}
 			case io.EOF:
 				log.Info("Stream Ended")
-				done = true
+				done.Store(true)
 			default:
 				log.Error(fmt.Sprintf("Returned err %v", err))
-				done = true
+				done.Store(true)
 			}
-			if done {
+			if done.Load() {
 				return
 			}
 		}
@@ -926,14 +932,19 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 		switch tickCount {
 		case 1:
 			reshard(t, "sharded", defaultTargetKs, "vstreamCopyMultiKeyspaceReshard", "-80,80-", "-40,40-", baseTabletID+400, nil, nil, nil, nil, defaultCellName, 1)
-			reshardDone = true
+			reshardDone.Store(true)
 		case 60:
-			done = true
+			done.Store(true)
 		}
-		if done {
+		if done.Load() {
 			break
 		}
 	}
+	// Join the goroutines before reading the events they wrote. The reader
+	// blocks in Recv on an idle stream, so cancel the stream to unblock it.
+	<-inserterDone
+	streamCancel()
+	<-readerDone
 	log.Info(fmt.Sprintf("ne=%v", ne))
 
 	// The number of row events streamed by the VStream API should match the number of rows inserted.
