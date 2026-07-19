@@ -894,6 +894,9 @@ func (lg *loadGenerator) start() {
 						time.Sleep(time.Duration(int64(float64(loadTestAvgWaitBetweenQueries.Microseconds()) * rand.Float64())))
 					}
 				})
+			} else {
+				// All connections are running, do not spin the loop.
+				time.Sleep(10 * time.Millisecond)
 			}
 		}
 	}

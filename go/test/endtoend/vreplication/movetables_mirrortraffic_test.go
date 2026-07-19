@@ -101,6 +101,9 @@ func testMoveTablesMirrorTraffic(t *testing.T, flavor workflowFlavor) {
 	go func() {
 		lg.start()
 	}()
+	// Stop the generator before cluster teardown, or its goroutines outlive
+	// the test and hammer a dead vtgate.
+	defer lg.stop()
 	lg.waitForCount(1000)
 
 	mt.SwitchReads()
