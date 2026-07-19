@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"vitess.io/vitess/go/netutil"
@@ -54,7 +55,9 @@ type Pool struct {
 	timeout time.Duration
 	env     tabletenv.Env
 
-	appDebugParams dbconfigs.Connector
+	// appDebugParams is read by callers, like the throttler's metrics
+	// goroutine, that overlap Open, so it is stored atomically.
+	appDebugParams atomic.Pointer[dbconfigs.Connector]
 	getConnTime    *servenv.TimingsWrapper
 }
 
@@ -93,7 +96,7 @@ func NewPool(env tabletenv.Env, name string, cfg tabletenv.ConnPoolConfig) *Pool
 
 // Open must be called before starting to use the pool.
 func (cp *Pool) Open(appParams, dbaParams, appDebugParams dbconfigs.Connector) {
-	cp.appDebugParams = appDebugParams
+	cp.appDebugParams.Store(&appDebugParams)
 
 	var refresh smartconnpool.RefreshCheck
 	if net.ParseIP(appParams.Host()) == nil {
@@ -122,7 +125,7 @@ func (cp *Pool) Get(ctx context.Context, setting *smartconnpool.Setting) (*Poole
 	defer span.Finish()
 
 	if cp.isCallerIDAppDebug(ctx) {
-		conn, err := NewConn(ctx, cp.appDebugParams, cp.dbaPool, setting, cp.env)
+		conn, err := NewConn(ctx, *cp.appDebugParams.Load(), cp.dbaPool, setting, cp.env)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +176,11 @@ func (cp *Pool) StatsJSON() string {
 }
 
 func (cp *Pool) isCallerIDAppDebug(ctx context.Context) bool {
-	params, err := cp.appDebugParams.MysqlParams()
+	appDebugParams := cp.appDebugParams.Load()
+	if appDebugParams == nil {
+		return false
+	}
+	params, err := appDebugParams.MysqlParams()
 	if err != nil {
 		return false
 	}
