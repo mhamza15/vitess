@@ -803,7 +803,10 @@ func (bp *backupPipe) Close(isDone bool) (err error) {
 			close(bp.failed)
 		}()
 
-		if bp.w != nil {
+		// Only flush on success. On a failed or canceled backup the
+		// compressor's workers may still be writing to the buffered writer,
+		// and the partial file is discarded anyway.
+		if isDone && bp.w != nil {
 			if err := bp.w.Flush(); err != nil {
 				return err
 			}
@@ -1324,6 +1327,7 @@ func (be *BuiltinBackupEngine) restoreFile(ctx context.Context, params RestorePa
 	bufferedDest := bufio.NewWriterSize(timedDest, int(builtinBackupFileWriteBufferSize))
 
 	// Create the uncompresser if needed.
+	closeDecompressor := func() {}
 	if !bm.SkipCompress {
 		var decompressor io.ReadCloser
 		deCompressionEngine := bm.CompressionEngine
@@ -1354,7 +1358,12 @@ func (be *BuiltinBackupEngine) restoreFile(ctx context.Context, params RestorePa
 		decompressStats := params.Stats.Scope(stats.Operation("Decompressor:Read"))
 		reader = ioutil.NewMeteredReader(decompressor, decompressStats.TimedIncrementBytes)
 
-		defer func() {
+		decompressorClosed := false
+		closeDecompressor = func() {
+			if decompressorClosed {
+				return
+			}
+			decompressorClosed = true
 			params.Logger.Infof("closing decompressor")
 			closeDecompressorAt := time.Now()
 			if cerr := closeWithRetry(ctx, params.Logger, closer, "decompressor"); cerr != nil {
@@ -1364,13 +1373,19 @@ func (be *BuiltinBackupEngine) restoreFile(ctx context.Context, params RestorePa
 				return
 			}
 			params.Stats.Scope(stats.Operation("Decompressor:Close")).TimedIncrement(time.Since(closeDecompressorAt))
-		}()
+		}
+		defer closeDecompressor()
 	}
 
 	// Copy the data. Will also write to the hasher.
 	if _, err := io.Copy(bufferedDest, reader); err != nil {
 		return vterrors.Wrap(err, "failed to copy file contents")
 	}
+
+	// Close the decompressor before reading the hash: an external
+	// decompressor's stdin-feeding goroutine may still be mid-read,
+	// updating the digest, until it is fully closed.
+	closeDecompressor()
 
 	// Check the hash.
 	hash := br.HashString()
