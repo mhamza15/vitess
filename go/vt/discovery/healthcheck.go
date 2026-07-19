@@ -915,10 +915,16 @@ func (hc *HealthCheckImpl) registeredHealthCheck(alias *topodata.TabletAlias) *t
 // TabletConnection returns the Connection to a given tablet.
 func (hc *HealthCheckImpl) TabletConnection(ctx context.Context, alias *topodata.TabletAlias, target *query.Target) (queryservice.QueryService, error) {
 	thc := hc.registeredHealthCheck(alias)
-	if thc == nil || thc.Conn == nil {
+	if thc == nil {
 		return nil, vterrors.Errorf(vtrpc.Code_NOT_FOUND, "tablet: %v is either down or nonexistent", alias)
 	}
-	return thc.Connection(ctx), nil
+	thc.connMu.Lock()
+	conn := thc.Conn
+	thc.connMu.Unlock()
+	if conn == nil {
+		return nil, vterrors.Errorf(vtrpc.Code_NOT_FOUND, "tablet: %v is either down or nonexistent", alias)
+	}
+	return conn, nil
 }
 
 // getAliasByCell should only be called while holding hc.mu
@@ -988,12 +994,14 @@ func (hc *HealthCheckImpl) RegisterStats() {
 		"HealthcheckConnections",
 		"the number of healthcheck connections registered",
 		[]string{"Keyspace", "ShardName", "TabletType"},
-		hc.servingConnStats)
+		hc.servingConnStats,
+	)
 
 	stats.NewGaugeFunc(
 		"HealthcheckChecksum",
 		"crc32 checksum of the current healthcheck state",
-		hc.stateChecksum)
+		hc.stateChecksum,
+	)
 }
 
 // ServeHTTP is part of the http.Handler interface. It renders the current state of the discovery gateway tablet cache into json.
@@ -1040,7 +1048,8 @@ func (hc *HealthCheckImpl) stateChecksum() int64 {
 	cacheStatus := hc.CacheStatus()
 	var buf bytes.Buffer
 	for _, st := range cacheStatus {
-		fmt.Fprintf(&buf,
+		fmt.Fprintf(
+			&buf,
 			"%v%v%v%v\n",
 			st.Cell,
 			st.Target.Keyspace,
