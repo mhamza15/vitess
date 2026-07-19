@@ -219,6 +219,21 @@ jobs:
               sleep 30
             done
           ) &
+
+          # Watchdog: kill the tests before memory starvation takes the
+          # runner agent down with all diagnostics. A killed job still
+          # uploads its logs, telemetry and artifacts.
+          (
+            while true; do
+              availkb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+              if [[ -n "$availkb" && "$availkb" -lt 1048576 ]]; then
+                echo "watchdog: MemAvailable ${availkb}KB below 1GB floor, killing tests"
+                pkill -9 -f 'go test' || true
+                break
+              fi
+              sleep 5
+            done
+          ) &
           GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
           if [[ "$RACE" == "true" ]]; then
             # One package binary at a time: race-instrumented clusters are
