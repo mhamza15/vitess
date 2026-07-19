@@ -125,22 +125,13 @@ jobs:
           set -o pipefail
           pkgs=$(go list ./go/test/endtoend/... | grep -vFx -f <(printf '%s' "$EXCLUDE_PACKAGES"))
 
-          # Packages without timing data would otherwise count as zero cost
-          # and all pack into one shard, overloading its runner. Give them a
-          # nominal cost so they spread until real timings exist.
-          # The timing-files glob only matches files at least one directory
-          # deep, so the synthetic log must live in a subdirectory.
-          mkdir -p timing/synthetic
-          while IFS= read -r pkg; do
-            if ! grep -rlq "\"Package\":\"$pkg\"" timing/; then
-              printf '{"Time":"2026-01-01T00:00:00Z","Action":"pass","Package":"%s","Elapsed":300}\n' "$pkg" \
-                >> timing/synthetic/synthetic.log
-            fi
-          done <<< "$pkgs"
+          # Seed timings bootstrap packages whose shards have never survived
+          # long enough to upload real ones.
+          mkdir -p timing/seed
+          cp .github/e2e-timing-seed.log timing/seed/
 
           matrix=$(printf '%s\n' "$pkgs" \
-            | go tool -modfile=tools/gotestsum/go.mod gotestsum tool ci-matrix \
-                --partitions "$PARTITIONS" --timing-files './timing/**/*.log')
+            | go run ./go/tools/e2ematrix -partitions "$PARTITIONS" -timing-dir timing)
 
           suffix=''
           if [[ "$RACE" == "true" ]]; then
@@ -149,7 +140,8 @@ jobs:
 
           echo "matrix=$(jq -c --arg suffix "$suffix" '.include |= map(
             (.packages | split(" ") | map(sub("^vitess.io/vitess/go/test/endtoend/"; "")) | join(", ")) as $pkgs
-            | . + {id: "\(.id)\($suffix)", description: "Shard \((.id | tonumber) + 1) - \($pkgs)"}
+            | . + {id: "\(.id)\($suffix)",
+                   description: "Shard \((.id | tonumber) + 1) - \($pkgs)\(if .slice then " [slice \(.slice)]" else "" end)"}
           )' <<<"$matrix")" >> "$GITHUB_OUTPUT"
 
   test:
@@ -204,6 +196,7 @@ jobs:
         env:
           PKG: ${{ matrix.packages }}
           RACE: ${{ inputs.race }}
+          RUN_FLAGS: ${{ matrix.runFlags }}
 
         run: |
           set -o pipefail
@@ -211,6 +204,10 @@ jobs:
           GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
           if [[ "$RACE" == "true" ]]; then
             GOTEST_FLAGS+=' -race'
+          fi
+          if [[ -n "$RUN_FLAGS" ]]; then
+            # Escape $ anchors so make does not expand them as variables.
+            GOTEST_FLAGS+=" ${RUN_FLAGS//$/\$\$}"
           fi
 
           make -s NOBANNER=1 e2e SKIP_IMAGE_BUILD=1 PKG="$PKG" GOTEST_FLAGS="$GOTEST_FLAGS" \
