@@ -283,6 +283,9 @@ func (ts *Server) ConnForCell(ctx context.Context, cell string) (Conn, error) {
 
 	// Global cell is the easy case.
 	if cell == GlobalCell {
+		if ts.globalCell == nil {
+			return nil, NewError(Interrupted, "topo server is closed")
+		}
 		return ts.globalCell, nil
 	}
 

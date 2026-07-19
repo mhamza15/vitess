@@ -69,6 +69,11 @@ func (ts *Server) GetCellInfo(ctx context.Context, cell string, strongRead bool)
 	if !strongRead {
 		conn = ts.globalReadOnlyCell
 	}
+	if conn == nil {
+		// Close nils the global connections; shutdown-time callers must get
+		// an error instead of a panic.
+		return nil, NewError(Interrupted, "topo server is closed")
+	}
 	// Read the file.
 	filePath := pathForCellInfo(cell)
 	contents, _, err := conn.Get(ctx, filePath)
