@@ -208,11 +208,15 @@ func TestOnlineDDLFlow(t *testing.T) {
 
 			// The routine throttler check and workload goroutines outlive any
 			// subtest, so they assert on the enclosing test.
-			go func() {
+			var wg sync.WaitGroup
+			wg.Go(func() {
 				ticker := time.NewTicker(500 * time.Millisecond)
 				defer ticker.Stop()
 				for {
-					resp, err := checkThrottler(context.WithoutCancel(workloadCtx), primaryTablet, throttlerapp.OnlineDDLName)
+					resp, err := checkThrottler(workloadCtx, primaryTablet, throttlerapp.OnlineDDLName)
+					if err != nil && workloadCtx.Err() != nil {
+						return
+					}
 					if !assert.NoError(t, err) {
 						return
 					}
@@ -224,11 +228,10 @@ func TestOnlineDDLFlow(t *testing.T) {
 						return
 					}
 				}
-			}()
+			})
 
 			// Create work for vplayer.
 			// This workload will consider throttling state and avoid generating DMLs if throttled.
-			var wg sync.WaitGroup
 			wg.Go(func() {
 				defer cancel()
 				defer fmt.Println("Terminating workload")
