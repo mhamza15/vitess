@@ -891,6 +891,9 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 					switch ev.Type {
 					case binlogdatapb.VEventType_ROW:
 						shard := ev.RowEvent.Shard
+						// A copy-phase event can carry several rows, and the
+						// test compares against a row count.
+						rows := int64(len(ev.RowEvent.RowChanges))
 						switch shard {
 						case "0":
 							if reshardDone.Load() {
@@ -899,17 +902,17 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 								ne.numShard0BeforeReshardEvents++
 							}
 						case "-80":
-							ne.numDash80Events++
-							shardedRowEvents.Add(1)
+							ne.numDash80Events += rows
+							shardedRowEvents.Add(rows)
 						case "80-":
-							ne.num80DashEvents++
-							shardedRowEvents.Add(1)
+							ne.num80DashEvents += rows
+							shardedRowEvents.Add(rows)
 						case "-40":
-							ne.numDash40Events++
-							shardedRowEvents.Add(1)
+							ne.numDash40Events += rows
+							shardedRowEvents.Add(rows)
 						case "40-":
-							ne.num40DashEvents++
-							shardedRowEvents.Add(1)
+							ne.num40DashEvents += rows
+							shardedRowEvents.Add(rows)
 						}
 						ne.numRowEvents++
 					case binlogdatapb.VEventType_JOURNAL:
