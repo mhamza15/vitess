@@ -607,12 +607,12 @@ func runAndValidateSpecializedPlans(t *testing.T, dbo *sql.DB, prepare func(quer
 	randomExec(t, dbo)
 
 	// Validate Join Query specialized plan.
-	p := getPlanWhenReady(t, queries[0].query, 100*time.Millisecond, vtgateQueryPlans(t))
+	p := getPlanWhenReady(t, queries[0].query, 30*time.Second, vtgateQueryPlans(t))
 	require.NotNil(t, p, "plan not found")
 	validateJoinSpecializedPlan(t, p)
 
 	// Validate Window Function Query specialized plan with failing baseline plan.
-	p = getPlanWhenReady(t, queries[3].query, 100*time.Millisecond, vtgateQueryPlans(t))
+	p = getPlanWhenReady(t, queries[3].query, 30*time.Second, vtgateQueryPlans(t))
 	require.NotNil(t, p, "plan not found")
 	validateBaselineErrSpecializedPlan(t, p)
 }
@@ -693,7 +693,7 @@ func getPlanWhenReady(t *testing.T, sql string, timeout time.Duration, plansFunc
 					return planMap
 				}
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
