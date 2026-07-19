@@ -606,13 +606,26 @@ func runAndValidateSpecializedPlans(t *testing.T, dbo *sql.DB, prepare func(quer
 
 	randomExec(t, dbo)
 
+	// The plan cache admits entries asynchronously and only retries on cache
+	// traffic, so re-execute the query between polls until its plan shows up.
+	nudge := func(q specializedPlanQuery) func() {
+		return func() {
+			stmt, err := prepare(q.query)
+			require.NoError(t, err)
+			defer stmt.Close()
+			rows, err := stmt.Query(q.args...)
+			require.NoError(t, err)
+			require.NoError(t, rows.Close())
+		}
+	}
+
 	// Validate Join Query specialized plan.
-	p := getPlanWhenReady(t, queries[0].query, 30*time.Second, vtgateQueryPlans(t))
+	p := getPlanWhenReady(t, queries[0].query, 30*time.Second, nudge(queries[0]), vtgateQueryPlans(t))
 	require.NotNil(t, p, "plan not found")
 	validateJoinSpecializedPlan(t, p)
 
 	// Validate Window Function Query specialized plan with failing baseline plan.
-	p = getPlanWhenReady(t, queries[3].query, 30*time.Second, vtgateQueryPlans(t))
+	p = getPlanWhenReady(t, queries[3].query, 30*time.Second, nudge(queries[3]), vtgateQueryPlans(t))
 	require.NotNil(t, p, "plan not found")
 	validateBaselineErrSpecializedPlan(t, p)
 }
@@ -672,8 +685,9 @@ func randomExec(t *testing.T, dbo *sql.DB) {
 	}
 }
 
-// getPlanWhenReady polls for the query plan until it is ready or times out.
-func getPlanWhenReady(t *testing.T, sql string, timeout time.Duration, plansFunc func() (map[string]any, error)) map[string]any {
+// getPlanWhenReady polls for the query plan until it is ready or times out,
+// re-executing the query between polls so the cache keeps retrying admission.
+func getPlanWhenReady(t *testing.T, sql string, timeout time.Duration, exec func(), plansFunc func() (map[string]any, error)) map[string]any {
 	t.Helper()
 
 	waitTimeout := time.After(timeout)
@@ -683,6 +697,7 @@ func getPlanWhenReady(t *testing.T, sql string, timeout time.Duration, plansFunc
 			require.Fail(t, "timeout waiting for plan for query: "+sql)
 			return nil
 		default:
+			exec()
 			p, err := plansFunc()
 			require.NoError(t, err, "failed to retrieve query plans")
 			if len(p) > 0 {
