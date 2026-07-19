@@ -203,7 +203,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
           GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
           if [[ "$RACE" == "true" ]]; then
-            GOTEST_FLAGS+=' -race'
+            # One package binary at a time: race-instrumented clusters are
+            # memory-hungry enough that concurrent packages starve the runner.
+            GOTEST_FLAGS+=' -race -p 1'
           fi
           if [[ -n "$RUN_FLAGS" ]]; then
             # Escape $ anchors so make does not expand them as variables.
