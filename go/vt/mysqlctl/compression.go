@@ -83,6 +83,15 @@ func registerBackupCompressionFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&ManifestExternalDecompressorCmd, "manifest-external-decompressor", ManifestExternalDecompressorCmd, "command with arguments to store in the backup manifest when compressing a backup with an external compression engine.")
 }
 
+// lz4WriteCloser exposes only Write and Close so io.Copy never uses the lz4
+// writer's ReadFrom, which fails when called more than once.
+type lz4WriteCloser struct {
+	w *lz4.Writer
+}
+
+func (l lz4WriteCloser) Write(p []byte) (int, error) { return l.w.Write(p) }
+func (l lz4WriteCloser) Close() error                { return l.w.Close() }
+
 // lz4CompressionLevel maps the numeric --compression-level value onto the
 // lz4 level constants, which are spaced powers of two rather than 1..9.
 func lz4CompressionLevel(level int) lz4.CompressionLevel {
@@ -268,7 +277,9 @@ func newBuiltinCompressor(engine string, writer io.Writer, logger logutil.Logger
 		if err := lz4Writer.Apply(lz4.CompressionLevelOption(lz4CompressionLevel(compressionLevel))); err != nil {
 			return compressor, vterrors.Wrap(err, "cannot configure lz4 compressor")
 		}
-		compressor = lz4Writer
+		// Hide the writer's ReadFrom: it only accepts a fresh writer, and
+		// striped backups io.Copy into the same compressor repeatedly.
+		compressor = lz4WriteCloser{lz4Writer}
 	case ZstdCompressor:
 		zst, err := zstd.NewWriter(writer, zstd.WithEncoderLevel(zstd.EncoderLevel(compressionLevel)))
 		if err != nil {
