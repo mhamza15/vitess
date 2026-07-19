@@ -556,6 +556,11 @@ func (s *Store[K, V]) maintenance() {
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
+	// Capture the channel once: EnsureOpen replaces the field for the next
+	// maintenance goroutine while this one may still be draining its own,
+	// closed channel.
+	writebuf := s.writebuf
+
 	for {
 		select {
 		case <-tick.C:
@@ -563,7 +568,7 @@ func (s *Store[K, V]) maintenance() {
 			s.policy.UpdateThreshold()
 			s.mlock.Unlock()
 
-		case item, ok := <-s.writebuf:
+		case item, ok := <-writebuf:
 			if !ok {
 				return
 			}
