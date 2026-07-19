@@ -217,7 +217,7 @@ func (c *Cluster) startVtctld(t testing.TB, ctx context.Context) error {
 		opts = append(opts, c.backupMount())
 	}
 
-	ctr, err := testcontainers.Run(ctx, c.vtctldImage(), opts...)
+	ctr, err := runContainer(ctx, c.vtctldImage(), opts...)
 	if err != nil {
 		return fmt.Errorf("starting vtctld: %w", err)
 	}

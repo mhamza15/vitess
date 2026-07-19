@@ -288,7 +288,7 @@ func (c *Cluster) runVTGateContainer(t testing.TB, ctx context.Context, name str
 		return nil, fmt.Errorf("preparing files for %s: %w", name, err)
 	}
 
-	return testcontainers.Run(
+	return runContainer(
 		ctx, c.vtgateImage(),
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(

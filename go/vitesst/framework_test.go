@@ -50,7 +50,8 @@ const selfTestVSchema = `{
 func TestClusterBootstrap(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithCells("zone1", "zone2"),
 		vitesst.WithKeyspace("uks").
 			WithReplicas(1).
@@ -141,7 +142,8 @@ func TestClusterBootstrap(t *testing.T) {
 func bootstrapTopoFlavor(t *testing.T, flavor string) {
 	t.Helper()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithTopo(flavor),
 		vitesst.WithKeyspace("ks").WithSchema(selfTestSchema),
 	)
@@ -178,7 +180,8 @@ func TestClusterBootstrapZookeeper(t *testing.T) {
 func TestTabletProcessLifecycle(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace("ks").
 			WithReplicas(1).
 			WithSchema(selfTestSchema),
@@ -245,7 +248,8 @@ func TestTabletProcessLifecycle(t *testing.T) {
 func TestAddShard(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace("ks").
 			WithShardNames("0").
 			WithSchema(selfTestSchema).
@@ -298,7 +302,8 @@ func TestAddShard(t *testing.T) {
 func TestBackupCycle(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithBackupStorage(),
 		vitesst.WithKeyspace("ks").
 			WithReplicas(1).
@@ -355,7 +360,8 @@ func TestBackupCycle(t *testing.T) {
 func TestVTGateRestart(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace("ks").WithSchema(selfTestSchema),
 	)
 	require.NoError(t, err)
@@ -393,7 +399,8 @@ func TestVTGateRestart(t *testing.T) {
 func TestTerminateCapturesFinalLogs(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace("ks").WithSchema(selfTestSchema),
 	)
 	require.NoError(t, err)
@@ -427,7 +434,8 @@ func TestTerminateCapturesFinalLogs(t *testing.T) {
 func TestNewMySQLComparison(t *testing.T) {
 	t.Parallel()
 
-	c, err := vitesst.NewCluster(t,
+	c, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace("ks").WithSchema(selfTestSchema),
 	)
 	require.NoError(t, err)

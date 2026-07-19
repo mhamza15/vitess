@@ -76,7 +76,7 @@ GRANT ALL ON *.* TO '%s'@'%%' WITH GRANT OPTION;
 	probe := []string{"mysql", "--socket", socket, "-u", dbaUser, "-e", "SELECT 1"}
 
 	name := cluster.name("mysql-compare-" + dbName)
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, cluster.image,
 		testcontainers.WithEntrypoint("bash", "-c", script),
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", tabletMySQLPort)),

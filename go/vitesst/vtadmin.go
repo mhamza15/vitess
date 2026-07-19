@@ -136,7 +136,7 @@ func (c *Cluster) startVTAdmin(t testing.TB, ctx context.Context) error {
 	}
 	args = append(args, c.opts.vtadminArgs...)
 
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, c.image,
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(vtadmin.httpPort),

@@ -203,7 +203,7 @@ func (c *Cluster) StartVtbackup(t testing.TB, ctx context.Context, spec Vtbackup
 		return nil, fmt.Errorf("preparing files for %s: %w", name, err)
 	}
 
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, c.image,
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", tabletMySQLPort)),

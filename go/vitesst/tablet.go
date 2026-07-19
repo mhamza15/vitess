@@ -603,7 +603,7 @@ func (c *Cluster) startTablet(tb testing.TB, ctx context.Context, spec *TabletSp
 		opts = append(opts, testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", tabletMysqlctldGRPCPort)))
 	}
 
-	ctr, err := testcontainers.Run(ctx, c.vttabletImage(spec.Keyspace), opts...)
+	ctr, err := runContainer(ctx, c.vttabletImage(spec.Keyspace), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("starting tablet %s: %w", t.Alias(), err)
 	}

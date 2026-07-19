@@ -77,7 +77,7 @@ func (c *Cluster) startEtcd(t testing.TB, ctx context.Context) error {
 		cluster:  c,
 	}
 
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, etcdImage,
 		testcontainers.WithCmd(
 			"etcd",
@@ -112,7 +112,7 @@ func (c *Cluster) startConsul(t testing.TB, ctx context.Context) error {
 		cluster:  c,
 	}
 
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, consulImage,
 		testcontainers.WithCmd(
 			"agent", "-server", "-bootstrap-expect", "1",
@@ -160,7 +160,7 @@ while true; do
   sleep 0.5
 done`
 
-	ctr, err := testcontainers.Run(
+	ctr, err := runContainer(
 		ctx, zkImage,
 		testcontainers.WithEntrypoint("bash", "-c", script),
 		testcontainers.WithExposedPorts(topo.httpPort),

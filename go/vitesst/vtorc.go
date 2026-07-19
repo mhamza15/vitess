@@ -222,7 +222,7 @@ func (c *Cluster) runVTOrcContainer(t testing.TB, ctx context.Context, name, cel
 		return nil, fmt.Errorf("preparing files for %s: %w", name, err)
 	}
 
-	return testcontainers.Run(
+	return runContainer(
 		ctx, c.image,
 		testcontainers.WithCmd(args...),
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d/tcp", vtorcHTTPPort)),

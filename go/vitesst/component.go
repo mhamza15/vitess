@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -272,6 +273,23 @@ func (cp *component) terminate(ctx context.Context) error {
 	}
 	cp.cluster.dumpContainerLogs(ctx, ctr, cp.name)
 	return testcontainers.TerminateContainer(ctr, testcontainers.StopContext(ctx), testcontainers.StopTimeout(0))
+}
+
+// runContainer starts a container, retrying when docker's ephemeral host
+// port pick collides with a port already in use. The container never came up
+// on a bind failure, and docker picks fresh ports on each attempt.
+func runContainer(ctx context.Context, img string, opts ...testcontainers.ContainerCustomizer) (testcontainers.Container, error) {
+	var (
+		ctr testcontainers.Container
+		err error
+	)
+	for range 3 {
+		ctr, err = testcontainers.Run(ctx, img, opts...)
+		if err == nil || !strings.Contains(err.Error(), "failed to bind host port") {
+			return ctr, err
+		}
+	}
+	return ctr, err
 }
 
 // errFirst returns the first non-nil error.
