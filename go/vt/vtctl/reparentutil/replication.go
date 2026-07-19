@@ -404,6 +404,23 @@ func stopReplicationAndBuildStatusMaps(
 	}
 	errRecorder := errgroup.Wait(groupCancel, errChan)
 
+	// Once the group meets its required successes it cancels the straggling
+	// RPCs, so their cancellation errors are self-inflicted rather than
+	// reachability failures. Drop them: those tablets are already absent from
+	// the reachable set that the revocation check below gates on.
+	remaining := errRecorder.Errors[:0]
+	for _, err := range errRecorder.Errors {
+		cause := err
+		var tabletErr *tabletAliasError
+		if errors.As(err, &tabletErr) {
+			cause = tabletErr.Unwrap()
+		}
+		if vterrors.Code(cause) != vtrpc.Code_CANCELED {
+			remaining = append(remaining, err)
+		}
+	}
+	errRecorder.Errors = remaining
+
 	// Exit early if we encountered no errors.
 	if len(errRecorder.Errors) == 0 {
 		return res, nil
