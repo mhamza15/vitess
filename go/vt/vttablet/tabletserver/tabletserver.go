@@ -978,6 +978,9 @@ func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sq
 				return err
 			}
 			if options.GetNoResult() {
+				// The result may be shared with concurrent consolidated
+				// readers, so copy before dropping the payload.
+				result = result.ShallowCopy()
 				result.Fields = nil
 				result.Rows = nil
 			} else {
@@ -988,7 +991,7 @@ func (tsv *TabletServer) execute(ctx context.Context, target *querypb.Target, sq
 			if tsv.sm.target.Keyspace != tsv.config.DB.DBName && sqltypes.IncludeFieldsOrDefault(options) == querypb.ExecuteOptions_ALL {
 				switch qre.plan.PlanID {
 				case planbuilder.PlanSelect, planbuilder.PlanSelectImpossible:
-					result.ReplaceKeyspace(tsv.config.DB.DBName, tsv.sm.target.Keyspace)
+					result = result.ReplaceKeyspace(tsv.config.DB.DBName, tsv.sm.target.Keyspace)
 				}
 			}
 			return nil
@@ -1168,7 +1171,8 @@ func (tsv *TabletServer) beginWaitForSameRangeTransactions(ctx context.Context, 
 			}
 
 			return waitErr
-		})
+		},
+	)
 	return txDone, err
 }
 

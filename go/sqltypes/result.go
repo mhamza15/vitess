@@ -97,14 +97,26 @@ func (result *Result) Repair(fields []*querypb.Field) {
 // ReplaceKeyspace rewrites the Database identifier of every field whose
 // Database matches dbName (the physical MySQL database name) to the given
 // keyspace name. Fields referencing other schemas (e.g. information_schema)
-// are left intact.
-func (result *Result) ReplaceKeyspace(dbName, keyspace string) {
-	// Change database name in mysql output to the keyspace name
-	for _, f := range result.Fields {
+// are left intact. The receiver may be shared with concurrent readers, such
+// as consolidated queries, so the rewrite copies instead of mutating and
+// returns the rewritten result.
+func (result *Result) ReplaceKeyspace(dbName, keyspace string) *Result {
+	changed := false
+	fields := make([]*querypb.Field, len(result.Fields))
+	for i, f := range result.Fields {
 		if f.Database == dbName {
+			f = f.CloneVT()
 			f.Database = keyspace
+			changed = true
 		}
+		fields[i] = f
 	}
+	if !changed {
+		return result
+	}
+	out := result.ShallowCopy()
+	out.Fields = fields
+	return out
 }
 
 // Copy creates a deep copy of Result.

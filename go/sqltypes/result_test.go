@@ -361,13 +361,15 @@ func TestReplaceKeyspace(t *testing.T) {
 		}},
 	}
 
-	result.ReplaceKeyspace("vttest", "keyspace-name")
-	assert.Equal(t, "keyspace-name", result.Fields[0].Database)
-	assert.Equal(t, "keyspace-name", result.Fields[1].Database)
+	replaced := result.ReplaceKeyspace("vttest", "keyspace-name")
+	assert.Equal(t, "keyspace-name", replaced.Fields[0].Database)
+	assert.Equal(t, "keyspace-name", replaced.Fields[1].Database)
 	// Expect empty database identifiers to remain empty
-	assert.Equal(t, "", result.Fields[2].Database)
+	assert.Equal(t, "", replaced.Fields[2].Database)
 	// Expect databases that don't match the physical db name to be left intact
-	assert.Equal(t, "information_schema", result.Fields[3].Database)
+	assert.Equal(t, "information_schema", replaced.Fields[3].Database)
+	// The receiver may be shared with concurrent readers and stays untouched.
+	assert.Equal(t, "vttest", result.Fields[0].Database)
 }
 
 func TestShallowCopy(t *testing.T) {
