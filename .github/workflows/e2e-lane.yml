@@ -201,6 +201,24 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          # Sample resource usage so a runner death leaves a trail: one
+          # compact line on stdout, which streams to the job log, and detail
+          # in a file uploaded as an artifact. The sampler dies with the job.
+          (
+            while true; do
+              read -r _ total used free _ <<< "$(free -m | sed -n 2p)"
+              avail=$(df -m --output=avail / | sed -n 2p | tr -d ' ')
+              echo "telemetry $(date -u +%T) mem ${used}/${total}MB disk ${avail}MB free"
+              {
+                date -u +%FT%TZ
+                free -m | sed -n 2p
+                docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' 2>/dev/null | head -30
+                echo ---
+              } >> telemetry.log 2>&1
+              sleep 30
+            done
+          ) &
           GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
           if [[ "$RACE" == "true" ]]; then
             # One package binary at a time: race-instrumented clusters are
@@ -215,6 +233,14 @@ jobs:
           make -s NOBANNER=1 e2e SKIP_IMAGE_BUILD=1 PKG="$PKG" GOTEST_FLAGS="$GOTEST_FLAGS" \
             | go tool -modfile=tools/gotestsum/go.mod gotestsum \
                 --raw-command --format github-actions --jsonfile timing.log -- cat
+
+      - name: Upload resource telemetry
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-telemetry-${{ matrix.id }}
+          path: telemetry.log
+          retention-days: 3
 
       - name: Upload timing data
         # Also upload from failed shards: passing tests in them still produce
