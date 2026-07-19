@@ -45,10 +45,13 @@ import (
 )
 
 var (
-	clusterInstance         *vitesst.Cluster
-	primaryTablet           *vitesst.Tablet
-	vtParams                mysql.ConnParams
-	ddlStrategy             = "vitess -vreplication-test-suite"
+	clusterInstance *vitesst.Cluster
+	primaryTablet   *vitesst.Tablet
+	vtParams        mysql.ConnParams
+	// The test-suite cut-over path renames the table before waiting for the
+	// vplayer to catch up and cannot recover from a wait timeout, so give the
+	// wait race-detector headroom.
+	ddlStrategy             = "vitess -vreplication-test-suite --cut-over-threshold=30s"
 	waitForMigrationTimeout = 180 * time.Second
 
 	keyspaceName          = "ks"
@@ -73,7 +76,8 @@ func setup(t *testing.T) {
 	testsFilter = os.Getenv(testFilterEnvVar)
 	ctx := t.Context()
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithVTCtldArgs(
 			"--schema-change-dir", schemaChangeDirectory,
 			"--schema-change-controller", "local",
