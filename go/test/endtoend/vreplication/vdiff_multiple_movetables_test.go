@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,7 +49,9 @@ func TestMultipleConcurrentVDiffs(t *testing.T) {
 	targetKeyspace := defaultTargetKs
 	vc.AddKeyspace(t, []*Cell{cell}, targetKeyspace, shardName, initialProductVSchema, initialProductSchema, 0, 0, targetTabletId, defaultSourceKsOpts)
 
-	index := 1000
+	// Two load goroutines share the counter.
+	var index atomic.Int64
+	index.Store(1000)
 	var loadCtx context.Context
 	var loadCancel context.CancelFunc
 	loadCtx, loadCancel = context.WithCancel(t.Context())
@@ -62,9 +65,9 @@ func TestMultipleConcurrentVDiffs(t *testing.T) {
 				log.Info("load cancelled")
 				return
 			default:
-				index += 1
+				id := index.Add(1)
 				vtgateConn := vc.GetVTGateConn(t)
-				q := fmt.Sprintf(query, tableName, index, index)
+				q := fmt.Sprintf(query, tableName, id, id)
 				vtgateConn.ExecuteFetch(q, 1000, false)
 				vtgateConn.Close()
 			}

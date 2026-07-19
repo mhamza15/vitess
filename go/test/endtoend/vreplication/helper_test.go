@@ -842,17 +842,26 @@ func (lg *loadGenerator) start() {
 	lg.wg.Add(1)
 	defer func() {
 		defer lg.wg.Done()
-		log.Info(fmt.Sprintf("loadGenerator: totalQueries: %d, successfulQueries: %d, deniedErrors: %d, ambiguousErrors: %d, reshardedErrors: %d, tableNotFoundErrors: %d, otherErrors: %d", totalQueries, successfulQueries, deniedErrors, ambiguousErrors, reshardedErrors, tableNotFoundErrors, otherErrors))
+		log.Info(fmt.Sprintf("loadGenerator: totalQueries: %d, successfulQueries: %d, deniedErrors: %d, ambiguousErrors: %d, reshardedErrors: %d, tableNotFoundErrors: %d, otherErrors: %d",
+			atomic.LoadInt64(&totalQueries), atomic.LoadInt64(&successfulQueries), atomic.LoadInt64(&deniedErrors), atomic.LoadInt64(&ambiguousErrors),
+			atomic.LoadInt64(&reshardedErrors), atomic.LoadInt64(&tableNotFoundErrors), atomic.LoadInt64(&otherErrors)))
 	}()
 	for {
 		select {
 		case <-lg.ctx.Done():
 			log.Info("loadGenerator: context cancelled")
-			log.Info(fmt.Sprintf("loadGenerator: deniedErrors: %d, ambiguousErrors: %d, reshardedErrors: %d, tableNotFoundErrors: %d, otherErrors: %d", deniedErrors, ambiguousErrors, reshardedErrors, tableNotFoundErrors, otherErrors))
-			require.Equal(t, int64(0), deniedErrors)
-			require.Equal(t, int64(0), otherErrors)
-			require.Equal(t, int64(0), reshardedErrors)
-			require.Equal(t, totalQueries, successfulQueries)
+			// Wait for the workers to exit so the counters are final before
+			// asserting on them.
+			for connectionCount.Load() > 0 {
+				time.Sleep(10 * time.Millisecond)
+			}
+			log.Info(fmt.Sprintf("loadGenerator: deniedErrors: %d, ambiguousErrors: %d, reshardedErrors: %d, tableNotFoundErrors: %d, otherErrors: %d",
+				atomic.LoadInt64(&deniedErrors), atomic.LoadInt64(&ambiguousErrors), atomic.LoadInt64(&reshardedErrors),
+				atomic.LoadInt64(&tableNotFoundErrors), atomic.LoadInt64(&otherErrors)))
+			require.Equal(t, int64(0), atomic.LoadInt64(&deniedErrors))
+			require.Equal(t, int64(0), atomic.LoadInt64(&otherErrors))
+			require.Equal(t, int64(0), atomic.LoadInt64(&reshardedErrors))
+			require.Equal(t, atomic.LoadInt64(&totalQueries), atomic.LoadInt64(&successfulQueries))
 			return
 		default:
 			if int(connectionCount.Load()) < lg.connections {

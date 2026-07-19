@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,6 +87,7 @@ var _ ILoadGenerator = (*SimpleLoadGenerator)(nil)
 type LoadGenerator struct {
 	ctx                 context.Context
 	vc                  *VitessCluster
+	stateMu             sync.Mutex
 	state               string
 	dbStrategy          string
 	overrideConstraints bool
@@ -248,9 +250,15 @@ func (lg *SimpleLoadGenerator) execQueryWithRetry(query string) (*sqltypes.Resul
 	}
 }
 
+func (lg *SimpleLoadGenerator) setState(state string) {
+	lg.stateMu.Lock()
+	defer lg.stateMu.Unlock()
+	lg.state = state
+}
+
 func (lg *SimpleLoadGenerator) Load() error {
-	lg.state = LoadGeneratorStateLoading
-	defer func() { lg.state = LoadGeneratorStateStopped }()
+	lg.setState(LoadGeneratorStateLoading)
+	defer lg.setState(LoadGeneratorStateStopped)
 	log.Info("Inserting initial FK data")
 	queries := []string{
 		"insert into parent values(1, 'parent1'), (2, 'parent2');",
@@ -265,22 +273,23 @@ func (lg *SimpleLoadGenerator) Load() error {
 }
 
 func (lg *SimpleLoadGenerator) Start() error {
+	lg.stateMu.Lock()
 	if lg.state == LoadGeneratorStateRunning {
+		lg.stateMu.Unlock()
 		log.Info("Load generator already running")
 		return nil
 	}
 	lg.state = LoadGeneratorStateRunning
+	// Create the run context before spawning the goroutine so Stop never
+	// races the assignment.
+	lg.runCtx, lg.runCtxCancel = context.WithCancel(lg.ctx)
+	lg.stateMu.Unlock()
 	go func() {
 		defer func() {
-			lg.state = LoadGeneratorStateStopped
+			lg.setState(LoadGeneratorStateStopped)
 			log.Info("Load generator stopped")
 		}()
 		defer func() { lg.ch <- true }()
-		lg.runCtx, lg.runCtxCancel = context.WithCancel(lg.ctx)
-		defer func() {
-			lg.runCtx = nil
-			lg.runCtxCancel = nil
-		}()
 		log.Info("Load generator starting")
 		for i := 0; ; i++ {
 			if i%1000 == 0 {
@@ -312,20 +321,24 @@ func (lg *SimpleLoadGenerator) Start() error {
 }
 
 func (lg *SimpleLoadGenerator) Stop() error {
+	lg.stateMu.Lock()
 	if lg.state == LoadGeneratorStateStopped {
+		lg.stateMu.Unlock()
 		log.Info("Load generator already stopped")
 		return nil
 	}
-	if lg.runCtx != nil && lg.runCtxCancel != nil {
+	cancel := lg.runCtxCancel
+	lg.stateMu.Unlock()
+	if cancel != nil {
 		log.Info("Canceling load generator")
-		lg.runCtxCancel()
+		cancel()
 	}
 	// Wait for ch to be closed or we hit a timeout.
 	timeout := vdiffTimeout
 	select {
 	case <-lg.ch:
 		log.Info("Load generator stopped")
-		lg.state = LoadGeneratorStateStopped
+		lg.setState(LoadGeneratorStateStopped)
 		return nil
 	case <-time.After(timeout):
 		log.Info("Timed out waiting for load generator to stop")
@@ -361,6 +374,8 @@ func (lg *SimpleLoadGenerator) DBStrategy() string {
 }
 
 func (lg *SimpleLoadGenerator) State() string {
+	lg.stateMu.Lock()
+	defer lg.stateMu.Unlock()
 	return lg.state
 }
 
