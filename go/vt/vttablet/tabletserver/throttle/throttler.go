@@ -526,6 +526,12 @@ func (throttler *Throttler) Enable() *sync.WaitGroup {
 	}
 	log.Info("Throttler: enabling")
 
+	// Wait for a prior generation's Operate goroutines, including their
+	// deferred cleanup of shared state, before starting a new generation.
+	if throttler.operateWaitGroup != nil {
+		throttler.operateWaitGroup.Wait()
+	}
+
 	wg := &sync.WaitGroup{}
 	throttler.operateWaitGroup = wg
 	var ctx context.Context
