@@ -1245,6 +1245,11 @@ func (throttler *Throttler) aggregatedMetricsSnapshot() map[string]base.MetricRe
 }
 
 func (throttler *Throttler) expireThrottledApps() {
+	// ThrottleApp mutates the stored AppThrottle in place under this mutex,
+	// so the expiry read takes it too.
+	throttler.throttledAppsMutex.Lock()
+	defer throttler.throttledAppsMutex.Unlock()
+
 	now := time.Now()
 	for appName, item := range throttler.throttledApps.Items() {
 		appThrottle := item.Object.(*base.AppThrottle)
