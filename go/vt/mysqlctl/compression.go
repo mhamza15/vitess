@@ -255,7 +255,10 @@ func newBuiltinCompressor(engine string, writer io.Writer, logger logutil.Logger
 		gzip.CompressionLevel = compressionLevel
 		compressor = gzip
 	case Lz4Compressor:
-		lz4Writer := lz4.NewWriter(writer).WithConcurrency(backupCompressBlocks)
+		// The v2 concurrent writer corrupts multi-block streams under load,
+		// so compress each file serially. Backups already parallelize across
+		// files and stripes.
+		lz4Writer := lz4.NewWriter(writer)
 		lz4Writer.Header = lz4.Header{
 			CompressionLevel: compressionLevel,
 		}
