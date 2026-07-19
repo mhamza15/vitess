@@ -553,6 +553,7 @@ func (c *Cluster) startTablet(tb testing.TB, ctx context.Context, spec *TabletSp
 
 	files := []ContainerFile{
 		{Content: []byte(initDBSQL), ContainerPath: tabletInitDBPath},
+		{Content: []byte(lowMemoryMyCnf), ContainerPath: lowMemoryMyCnfPath},
 		{Content: []byte(c.supervisorScript(spec, alias)), ContainerPath: supervisorScriptPath, Mode: 0o755},
 	}
 	files = append(files, c.opts.tabletFiles...)
@@ -572,7 +573,7 @@ func (c *Cluster) startTablet(tb testing.TB, ctx context.Context, spec *TabletSp
 		),
 		network.WithNetwork([]string{alias}, c.network),
 		testcontainers.WithTmpfs(map[string]string{vtDataRoot: "uid=999,gid=999"}),
-		testcontainers.WithEnv(c.tabletContainerEnv(spec.Keyspace)),
+		testcontainers.WithEnv(c.tabletContainerEnv()),
 		testcontainers.WithHostConfigModifier(func(hc *container.HostConfig) {
 			// An init process reaps the mysqld and vttablet processes the
 			// supervisor loop leaves behind when tests kill them.
@@ -650,24 +651,26 @@ func (c *Cluster) vttabletBaseArgs(spec *TabletSpec, alias string) []string {
 // supervisorScript renders the tablet container's entrypoint: init or start
 // mysqld, then keep vttablet running whenever the desired-state file says
 // "run". Tests drive it through the control files in /vt/vtdataroot/supervisor.
-// testSuiteMyCnf is the low-memory mysqld configuration upstream CI applies
-// to every cluster test. It keeps per-tablet memory small enough to run many
-// tablets on one runner.
-const testSuiteMyCnf = "/vt/config/mycnf/test-suite.cnf"
+// lowMemoryMyCnfPath is where every tablet container gets the framework's
+// low-memory mysqld snippet. Unlike the repo's test-suite.cnf it carries no
+// behavioral flags, only memory caps, so test semantics stay untouched.
+const lowMemoryMyCnfPath = containerFilesDir + "/lowmem.cnf"
+
+const lowMemoryMyCnf = `innodb_buffer_pool_size = 32M
+innodb_log_buffer_size = 1M
+innodb_use_native_aio = 0
+key_buffer_size = 2M
+`
 
 // tabletContainerEnv builds a tablet container's environment. A test's own
-// EXTRA_MY_CNF snippets are appended after the test-suite defaults so they
-// win on conflicts. MariaDB rejects some of the file's MySQL variables, so
-// mariadb keyspaces do not get the default.
-func (c *Cluster) tabletContainerEnv(keyspace string) map[string]string {
+// EXTRA_MY_CNF snippets are appended after the low-memory defaults so they
+// win on conflicts.
+func (c *Cluster) tabletContainerEnv() map[string]string {
 	env := mergeEnv(map[string]string{"VTTEST": "endtoend"}, c.opts.tabletEnv)
-	if strings.Contains(c.vttabletImage(keyspace), "mariadb") {
-		return env
-	}
 	if extra := env["EXTRA_MY_CNF"]; extra != "" {
-		env["EXTRA_MY_CNF"] = testSuiteMyCnf + ":" + extra
+		env["EXTRA_MY_CNF"] = lowMemoryMyCnfPath + ":" + extra
 	} else {
-		env["EXTRA_MY_CNF"] = testSuiteMyCnf
+		env["EXTRA_MY_CNF"] = lowMemoryMyCnfPath
 	}
 	return env
 }
