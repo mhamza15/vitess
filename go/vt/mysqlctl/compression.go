@@ -28,7 +28,7 @@ import (
 	"github.com/google/shlex"
 	"github.com/klauspost/compress/zstd"
 	"github.com/klauspost/pgzip"
-	"github.com/pierrec/lz4"
+	"github.com/pierrec/lz4/v4"
 	"github.com/planetscale/pargzip"
 	"github.com/spf13/pflag"
 
@@ -81,6 +81,15 @@ func registerBackupCompressionFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&ExternalDecompressorCmd, "external-decompressor", ExternalDecompressorCmd, "command with arguments to use when decompressing a backup.")
 	fs.BoolVar(&ExternalDecompressorUseManifest, "external-decompressor-use-manifest", ExternalDecompressorUseManifest, "allows the decompressor command stored in the backup manifest to be used at restore time. Enabling this is a security risk: an attacker with write access to the backup storage could modify the manifest to execute arbitrary commands on the tablet as the Vitess user. NOT RECOMMENDED.")
 	fs.StringVar(&ManifestExternalDecompressorCmd, "manifest-external-decompressor", ManifestExternalDecompressorCmd, "command with arguments to store in the backup manifest when compressing a backup with an external compression engine.")
+}
+
+// lz4CompressionLevel maps the numeric --compression-level value onto the
+// lz4 level constants, which are spaced powers of two rather than 1..9.
+func lz4CompressionLevel(level int) lz4.CompressionLevel {
+	if level < 1 || level > 9 {
+		return lz4.Fast
+	}
+	return lz4.CompressionLevel(1 << (8 + level))
 }
 
 func getExtensionFromEngine(engine string) (string, error) {
@@ -255,12 +264,9 @@ func newBuiltinCompressor(engine string, writer io.Writer, logger logutil.Logger
 		gzip.CompressionLevel = compressionLevel
 		compressor = gzip
 	case Lz4Compressor:
-		// The v2 concurrent writer corrupts multi-block streams under load,
-		// so compress each file serially. Backups already parallelize across
-		// files and stripes.
 		lz4Writer := lz4.NewWriter(writer)
-		lz4Writer.Header = lz4.Header{
-			CompressionLevel: compressionLevel,
+		if err := lz4Writer.Apply(lz4.CompressionLevelOption(lz4CompressionLevel(compressionLevel))); err != nil {
+			return compressor, vterrors.Wrap(err, "cannot configure lz4 compressor")
 		}
 		compressor = lz4Writer
 	case ZstdCompressor:
