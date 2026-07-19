@@ -487,6 +487,16 @@ func (c *Cluster) AddShard(t testing.TB, ctx context.Context, keyspace, shardNam
 
 	c.logf("starting shard %s/%s", keyspace, shardName)
 	if err := c.startShard(t, ctx, shard, specs, false); err != nil {
+		// Unregister the shard so cleanup paths never see one without a
+		// running primary.
+		ks.mu.Lock()
+		for i, s := range ks.shards {
+			if s == shard {
+				ks.shards = append(ks.shards[:i], ks.shards[i+1:]...)
+				break
+			}
+		}
+		ks.mu.Unlock()
 		return nil, err
 	}
 	return shard, nil
