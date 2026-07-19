@@ -123,8 +123,20 @@ jobs:
 
         run: |
           set -o pipefail
-          matrix=$(go list ./go/test/endtoend/... \
-            | grep -vFx -f <(printf '%s' "$EXCLUDE_PACKAGES") \
+          pkgs=$(go list ./go/test/endtoend/... | grep -vFx -f <(printf '%s' "$EXCLUDE_PACKAGES"))
+
+          # Packages without timing data would otherwise count as zero cost
+          # and all pack into one shard, overloading its runner. Give them a
+          # nominal cost so they spread until real timings exist.
+          mkdir -p timing
+          while IFS= read -r pkg; do
+            if ! grep -rlq "\"Package\":\"$pkg\"" timing/; then
+              printf '{"Time":"2026-01-01T00:00:00Z","Action":"pass","Package":"%s","Elapsed":300}\n' "$pkg" \
+                >> timing/synthetic.log
+            fi
+          done <<< "$pkgs"
+
+          matrix=$(printf '%s\n' "$pkgs" \
             | go tool -modfile=tools/gotestsum/go.mod gotestsum tool ci-matrix \
                 --partitions "$PARTITIONS" --timing-files './timing/**/*.log')
 
