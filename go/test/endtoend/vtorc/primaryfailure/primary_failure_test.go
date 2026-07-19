@@ -73,6 +73,11 @@ func TestDownPrimary(t *testing.T) {
 	// Make the current primary vttablet unavailable.
 	require.NoError(t, curPrimary.StopVttablet(ctx))
 	require.NoError(t, curPrimary.StopMySQL(ctx))
+	// Stopped processes still answer with an instant connection refusal
+	// while the container is up, so a discovery poll can finish under the
+	// poll deadline. Disconnect the network so the polls genuinely hang.
+	require.NoError(t, rdonly.DisconnectNetwork(ctx))
+	require.NoError(t, curPrimary.DisconnectNetwork(ctx))
 	// We have bunch of Vttablets down. Therefore we expect at least 1 occurrence of InstancePollSecondsExceeded
 	waitForInstancePollSecondsExceededCount(ctx, t, vtOrcProcess, 1, false)
 
