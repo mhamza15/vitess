@@ -530,7 +530,19 @@ func matchesDebugVar(body, name string, wanted []string) bool {
 
 // startTablet starts one tablet container and waits for the tablet to report
 // SERVING or NOT_SERVING.
+// tabletStartSem bounds concurrent tablet bring-up host-wide: each start is a
+// docker container creation plus a mysqld initialization, and an unbounded
+// burst from a large cluster can starve the host before any tablet is up.
+var tabletStartSem = make(chan struct{}, 4)
+
 func (c *Cluster) startTablet(tb testing.TB, ctx context.Context, spec *TabletSpec) (*Tablet, error) {
+	select {
+	case tabletStartSem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-tabletStartSem }()
+
 	alias := c.name(fmt.Sprintf("vttablet-%d", spec.UID))
 
 	t := &Tablet{
