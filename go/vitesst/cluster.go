@@ -487,15 +487,16 @@ func (c *Cluster) AddShard(t testing.TB, ctx context.Context, keyspace, shardNam
 
 	c.logf("starting shard %s/%s", keyspace, shardName)
 	if err := c.startShard(t, ctx, shard, specs, false); err != nil {
-		// Unregister the shard so cleanup paths never see one without a
-		// running primary.
-		ks.mu.Lock()
-		for i, s := range ks.shards {
-			if s == shard {
-				ks.shards = append(ks.shards[:i], ks.shards[i+1:]...)
-				break
+		// Terminate any tablets that did start and unregister the shard, so
+		// cleanup paths never see one without a running primary and teardown
+		// does not trip over orphaned containers.
+		for _, tablet := range shard.Tablets() {
+			if removeErr := tablet.Remove(ctx); removeErr != nil {
+				c.logf("removing tablet %s of failed shard %s/%s: %v", tablet.Alias(), keyspace, shardName, removeErr)
 			}
 		}
+		ks.mu.Lock()
+		ks.shards = slices.DeleteFunc(ks.shards, func(other *Shard) bool { return other == shard })
 		ks.mu.Unlock()
 		return nil, err
 	}
