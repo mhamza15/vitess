@@ -1385,10 +1385,13 @@ func signalVtctldClient(t *testing.T, message string, onMessage func(t *testing.
 			_, output, err := vtctld.Exec(ctx, "bash", "-c", "kill -TERM $(cat "+terminatePIDFile+")")
 			require.NoErrorf(t, err, "terminating vtctldclient: %s", output)
 			// Wait for the terminated vtctldclient to fully exit so its
-			// server-side stream is gone before the test issues the next command.
+			// server-side stream is gone before the test issues the next
+			// command. The orphaned process is never reaped, so a zombie
+			// counts as exited.
 			assert.Eventually(t, func() bool {
-				exitCode, _, err := vtctld.Exec(ctx, "bash", "-c", "kill -0 $(cat "+terminatePIDFile+")")
-				return err == nil && exitCode != 0
+				exitCode, _, err := vtctld.Exec(ctx, "bash", "-c",
+					"pid=$(cat "+terminatePIDFile+"); [ ! -e /proc/$pid ] || grep -qE '\\) Z' /proc/$pid/stat")
+				return err == nil && exitCode == 0
 			}, 30*time.Second, 100*time.Millisecond, "vtctldclient did not exit after SIGTERM")
 			return true
 		}
