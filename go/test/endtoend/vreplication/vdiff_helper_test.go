@@ -139,19 +139,36 @@ func waitForVDiff2ToCompleteWithTimeout(t *testing.T, ksWorkflow, cells, uuid st
 		}
 	}()
 
-	select {
-	case <-ch:
-		mu.Lock()
-		defer mu.Unlock()
-		return info
-	case <-time.After(timeout):
-		close(stop)
-		mu.Lock()
-		latest := jsonStr
-		mu.Unlock()
-		log.Error(fmt.Sprintf("VDiff never completed for UUID %s. Latest output: %s", uuid, latest))
-		require.FailNow(t, "VDiff never completed for UUID "+uuid)
-		return nil
+	// The timeout is a stall timeout: as long as the vdiff keeps comparing
+	// rows it gets more time, so a slow lane finishes while a genuine wedge
+	// still fails quickly.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	var lastRows int64 = -1
+	for {
+		select {
+		case <-ch:
+			mu.Lock()
+			defer mu.Unlock()
+			return info
+		case <-timer.C:
+			mu.Lock()
+			rows := int64(-1)
+			if info != nil {
+				rows = info.RowsCompared
+			}
+			latest := jsonStr
+			mu.Unlock()
+			if rows > lastRows {
+				lastRows = rows
+				timer.Reset(timeout)
+				continue
+			}
+			close(stop)
+			log.Error(fmt.Sprintf("VDiff stalled for UUID %s. Latest output: %s", uuid, latest))
+			require.FailNow(t, "VDiff never completed for UUID "+uuid)
+			return nil
+		}
 	}
 }
 
