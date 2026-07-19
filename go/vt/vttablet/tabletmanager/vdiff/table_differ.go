@@ -289,15 +289,18 @@ func (td *tableDiffer) selectTablets(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
+		// Work on a copy: the source goroutine reads the shared options
+		// concurrently.
+		targetPickerOptions := tabletPickerOptions
 		if td.wd.ct.workflowType == binlogdatapb.VReplicationWorkflowType_Reshard {
 			// For resharding, the target shards could be non-serving if traffic has already been switched once.
 			// When shards are created their IsPrimaryServing attribute is set to true. However, when the traffic is switched
 			// it is set to false for the shards we are switching from. We don't have a way to know if we have
 			// switched or not, so we just include non-serving tablets for all reshards.
-			tabletPickerOptions.IncludeNonServingTablets = true
+			targetPickerOptions.IncludeNonServingTablets = true
 		}
 		targetTablet, targetErr = td.pickTablet(ctx, td.wd.ct.ts, targetCells, td.wd.ct.vde.thisTablet.Keyspace,
-			td.wd.ct.vde.thisTablet.Shard, td.wd.opts.PickerOptions.TabletTypes, tabletPickerOptions)
+			td.wd.ct.vde.thisTablet.Shard, td.wd.opts.PickerOptions.TabletTypes, targetPickerOptions)
 		if targetErr != nil {
 			return
 		}
