@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -66,11 +67,17 @@ func (v *Vtctld) executeCommand(ctx context.Context, args ...string) (string, er
 		return "", errors.New("vtctld is not running")
 	}
 
+	// Bound the client and the exec stream so a wedged server call fails the
+	// test with an error instead of hanging until the package timeout. The
+	// default vtctldclient action timeout is one hour.
 	cmd := append([]string{
 		"vtctldclient",
 		"--server", fmt.Sprintf("%s:%d", v.name, vtctldGRPCPort),
+		"--action-timeout", "15m",
 	}, args...)
 
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	defer cancel()
 	exitCode, output, err := containerExec(ctx, ctr, cmd)
 	if err != nil {
 		return "", err
