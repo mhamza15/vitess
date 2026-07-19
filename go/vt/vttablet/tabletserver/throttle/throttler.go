@@ -259,6 +259,9 @@ func NewThrottler(env tabletenv.Env, srvTopoServer srvtopo.Server, ts *topo.Serv
 	throttler.readSelfThrottleMetrics = func(ctx context.Context, tmClient tmclient.TabletManagerClient) base.ThrottleMetrics {
 		return throttler.readSelfThrottleMetricsInternal(ctx, tmClient)
 	}
+	// Set once here: a re-Open must not rewrite it while a prior generation's
+	// Operate goroutine still reads it.
+	throttler.initConfig()
 	return throttler
 }
 
@@ -629,7 +632,6 @@ func (throttler *Throttler) Open() error {
 	var ctx context.Context
 	ctx, throttler.cancelOpenContext = context.WithCancel(context.Background())
 	throttler.customMetricsQuery.Store("")
-	throttler.initConfig()
 	throttler.pool.Open(throttler.env.Config().DB.AppWithDB(), throttler.env.Config().DB.DbaWithDB(), throttler.env.Config().DB.AppDebugWithDB())
 
 	throttler.ThrottleApp(throttlerapp.TestingAlwaysThrottledName.String(), time.Now().Add(time.Hour*24*365*10), DefaultThrottleRatio, false)
