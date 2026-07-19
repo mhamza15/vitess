@@ -873,6 +873,8 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	defer streamCancel()
 	var ne numEvents
 	var shardedRowEvents atomic.Int64
+	var receivedIDsMu sync.Mutex
+	receivedIDs := map[string][]string{}
 	var reshardDone atomic.Bool
 	readerDone := make(chan struct{})
 	go func() {
@@ -894,6 +896,16 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 						// A copy-phase event can carry several rows, and the
 						// test compares against a row count.
 						rows := int64(len(ev.RowEvent.RowChanges))
+						recordIDs := func() {
+							receivedIDsMu.Lock()
+							defer receivedIDsMu.Unlock()
+							for _, rc := range ev.RowEvent.RowChanges {
+								if rc.After != nil && len(rc.After.Lengths) > 0 && rc.After.Lengths[0] > 0 {
+									id := string(rc.After.Values[:rc.After.Lengths[0]])
+									receivedIDs[id] = append(receivedIDs[id], shard)
+								}
+							}
+						}
 						switch shard {
 						case "0":
 							if reshardDone.Load() {
@@ -904,15 +916,19 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 						case "-80":
 							ne.numDash80Events += rows
 							shardedRowEvents.Add(rows)
+							recordIDs()
 						case "80-":
 							ne.num80DashEvents += rows
 							shardedRowEvents.Add(rows)
+							recordIDs()
 						case "-40":
 							ne.numDash40Events += rows
 							shardedRowEvents.Add(rows)
+							recordIDs()
 						case "40-":
 							ne.num40DashEvents += rows
 							shardedRowEvents.Add(rows)
+							recordIDs()
 						}
 						ne.numRowEvents++
 					case binlogdatapb.VEventType_JOURNAL:
@@ -951,14 +967,25 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	// The inserter's final row lands after done is set, so wait for the
 	// stream to deliver every inserted row before ending it.
 	<-inserterDone
-	customerCount, err := execVtgateQuery(vtgateConn, "sharded", "select count(*) from customer")
+	customerCount, err := execVtgateQuery(vtgateConn, "sharded", "select cid from customer order by cid")
 	require.NoError(t, err)
-	wantShardedRows, err := customerCount.Rows[0][0].ToCastInt64()
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
+	wantShardedRows := int64(len(customerCount.Rows))
+	if !assert.Eventually(t, func() bool {
 		return shardedRowEvents.Load() >= wantShardedRows
 	}, 30*time.Second, 500*time.Millisecond,
-		"waiting for the vstream to deliver all %d sharded rows, have %d", wantShardedRows, shardedRowEvents.Load())
+		"waiting for the vstream to deliver all %d sharded rows, have %d", wantShardedRows, shardedRowEvents.Load()) {
+		// Name the missing rows so the delivery gap can be attributed to the
+		// copy phase or the reshard journal handoff.
+		receivedIDsMu.Lock()
+		for _, row := range customerCount.Rows {
+			id := row[0].ToString()
+			if len(receivedIDs[id]) == 0 {
+				log.Error(fmt.Sprintf("row cid=%s was inserted but its event was never received", id))
+			}
+		}
+		receivedIDsMu.Unlock()
+		require.FailNow(t, "vstream did not deliver every sharded row")
+	}
 
 	// Join the reader before reading the events it wrote. It blocks in Recv
 	// on an idle stream, so cancel the stream to unblock it.
