@@ -90,8 +90,12 @@ func TestFKExt(t *testing.T) {
 		"--vstream-packet-size=256",
 		"--queryserver-config-schema-change-signal",
 		parallelInsertWorkers)
+	origExtraVTGateArgs := extraVTGateArgs
 	extraVTGateArgs = append(extraVTGateArgs, "--schema-change-signal"+"=true", "--planner-version", "Gen4")
-	defer func() { extraVTTabletArgs = nil }()
+	defer func() {
+		extraVTTabletArgs = nil
+		extraVTGateArgs = origExtraVTGateArgs
+	}()
 	initFKExtConfig(t)
 
 	cellName := fkextConfig.cell

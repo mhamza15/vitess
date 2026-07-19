@@ -314,6 +314,10 @@ func TestSequenceResetOnSwitchTraffic(t *testing.T) {
 	defer func() {
 		extraVTGateArgs = origExtraVTGateArgs
 	}()
+	// Later tests in the package read these globals, so restore them.
+	defer func(nc, lc int64) {
+		newCustomerCount, lastCustomerId = nc, lc
+	}(newCustomerCount, lastCustomerId)
 
 	tc := initSequenceResetTestCase(t)
 	defer tc.teardown()
