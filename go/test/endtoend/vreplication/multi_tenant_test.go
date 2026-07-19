@@ -57,7 +57,6 @@ const (
 	sourceKeyspaceTemplate = "s%d"
 	targetKeyspaceName     = "mt"
 
-	numTenants                 = 10
 	numInitialRowsPerTenant    = 10
 	numAdditionalRowsPerTenant = 10
 	baseInitialTabletId        = 1000
