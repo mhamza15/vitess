@@ -97,11 +97,18 @@ jobs:
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           echo "timing source branch: $branch"
 
-          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=$branch&status=completed&per_page=1" \
-            --jq '.workflow_runs[0].id') \
-            || echo "branch run lookup failed"
+          run_id=''
+          for candidate in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=$branch&status=completed&per_page=10" \
+            --jq '.workflow_runs[].id' || true); do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.name | startswith("e2e-timing"))] | length' || echo 0)
+            if [[ "$count" -gt 0 ]]; then
+              run_id=$candidate
+              break
+            fi
+          done
 
-          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+          if [[ -z "$run_id" ]]; then
             run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=main&status=success&per_page=1" \
               --jq '.workflow_runs[0].id') \
               || echo "main run lookup failed"
