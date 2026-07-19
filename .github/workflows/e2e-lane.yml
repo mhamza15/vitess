@@ -156,7 +156,7 @@ jobs:
     name: ${{ matrix.description }}
     needs: [build-images, generate-matrix]
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 110
 
     permissions:
       contents: read

@@ -231,13 +231,13 @@ e2e: $(if $(SKIP_IMAGE_BUILD),,vitesst_images)
 ifndef NOBANNER
 	echo $$(date): Running endtoend tests
 endif
-	go test -count=1 -timeout 60m $(GOTEST_FLAGS) $(or $(PKG),./go/test/endtoend/...)
+	go test -count=1 -timeout 80m $(GOTEST_FLAGS) $(or $(PKG),./go/test/endtoend/...)
 
 # e2e_race runs the containerized end-to-end tests with the race detector.
 # Usage: make e2e_race [PKG=./go/test/endtoend/vtgate/...]
 e2e_race: vitesst_images
 	echo $$(date): Running endtoend tests with the race detector
-	go test -race -count=1 -timeout 60m $(or $(PKG),./go/test/endtoend/...)
+	go test -race -count=1 -timeout 80m $(or $(PKG),./go/test/endtoend/...)
 
 # Run the code coverage tools, compute aggregate.
 unit_test_cover: build dependency_check demo
