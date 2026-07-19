@@ -204,7 +204,9 @@ jobs:
                 --raw-command --format github-actions --jsonfile timing.log -- cat
 
       - name: Upload timing data
-        if: ${{ !inputs.race }}
+        # Also upload from failed shards: passing tests in them still produce
+        # real durations, keeping the partitioner's unknown set small.
+        if: ${{ !cancelled() && !inputs.race }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-timing-${{ matrix.id }}
