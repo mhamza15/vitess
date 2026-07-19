@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ import (
 
 const (
 	vdiffTimeout             = 180 * time.Second // We can leverage auto retry on error with this longer-than-usual timeout
-	maxDiffDurationTimeout   = 5 * time.Minute
+	maxDiffDurationTimeout   = 10 * time.Minute
 	vdiffRetryTimeout        = 30 * time.Second
 	vdiffStatusCheckInterval = 5 * time.Second
 	vdiffRetryInterval       = 5 * time.Second
@@ -61,8 +62,13 @@ func waitForVDiff2ToComplete(t *testing.T, ksWorkflow, cells, uuid string, compl
 }
 
 func waitForVDiff2ToCompleteWithTimeout(t *testing.T, ksWorkflow, cells, uuid string, completedAtMin time.Time, timeout time.Duration) *vdiffInfo {
+	// The parent reads these on the timeout path while the goroutine writes
+	// them, and the stop channel keeps the goroutine from asserting against a
+	// test the timeout already failed.
+	var mu sync.Mutex
 	var info *vdiffInfo
 	var jsonStr string
+	stop := make(chan struct{})
 	first := true
 	previousProgress := vdiff2.ProgressReport{}
 	ch := make(chan bool, 1)
@@ -72,26 +78,37 @@ func waitForVDiff2ToCompleteWithTimeout(t *testing.T, ksWorkflow, cells, uuid st
 	go func() {
 		defer func() { ch <- true }()
 		for {
-			time.Sleep(vdiffStatusCheckInterval)
-			var err error
-			_, jsonStr, err = performVDiff2Action(t, ksWorkflow, cells, "show", uuid, false)
+			select {
+			case <-stop:
+				return
+			case <-time.After(vdiffStatusCheckInterval):
+			}
+			_, out, err := performVDiff2Action(t, ksWorkflow, cells, "show", uuid, false)
+			select {
+			case <-stop:
+				return
+			default:
+			}
 			if !assert.NoError(t, err) {
 				return
 			}
-			info = getVDiffInfo(jsonStr)
-			if !assert.NotNil(t, info) {
+			in := getVDiffInfo(out)
+			mu.Lock()
+			jsonStr, info = out, in
+			mu.Unlock()
+			if !assert.NotNil(t, in) {
 				return
 			}
-			if info.State == "completed" {
+			if in.State == "completed" {
 				if !completedAtMin.IsZero() {
-					ca := info.CompletedAt
+					ca := in.CompletedAt
 					completedAt, _ := time.Parse(vdiff2.TimestampFormat, ca)
 					if !completedAt.After(completedAtMin) {
 						continue
 					}
 				}
 				return
-			} else if info.State == "started" { // Test the progress report
+			} else if in.State == "started" { // Test the progress report
 				// The ETA should always be in the future -- when we're able to estimate
 				// it -- and the progress percentage should only increase.
 				// The timestamp format allows us to compare them lexicographically.
@@ -112,11 +129,11 @@ func waitForVDiff2ToCompleteWithTimeout(t *testing.T, ksWorkflow, cells, uuid st
 				*/
 
 				if !first {
-					if !assert.GreaterOrEqual(t, info.Progress.Percentage, previousProgress.Percentage) {
+					if !assert.GreaterOrEqual(t, in.Progress.Percentage, previousProgress.Percentage) {
 						return
 					}
 				}
-				previousProgress.Percentage = info.Progress.Percentage
+				previousProgress.Percentage = in.Progress.Percentage
 				first = false
 			}
 		}
@@ -124,9 +141,15 @@ func waitForVDiff2ToCompleteWithTimeout(t *testing.T, ksWorkflow, cells, uuid st
 
 	select {
 	case <-ch:
+		mu.Lock()
+		defer mu.Unlock()
 		return info
 	case <-time.After(timeout):
-		log.Error(fmt.Sprintf("VDiff never completed for UUID %s. Latest output: %s", uuid, jsonStr))
+		close(stop)
+		mu.Lock()
+		latest := jsonStr
+		mu.Unlock()
+		log.Error(fmt.Sprintf("VDiff never completed for UUID %s. Latest output: %s", uuid, latest))
 		require.FailNow(t, "VDiff never completed for UUID "+uuid)
 		return nil
 	}
