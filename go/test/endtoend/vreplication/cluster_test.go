@@ -20,6 +20,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -79,6 +80,9 @@ var (
 
 	// mariaDBImage is the Docker image MariaDB source keyspaces run.
 	mariaDBImage = "vitesst:mariadb"
+
+	// perfSchemaOffCnf disables performance_schema on this package's tablets.
+	perfSchemaOffCnf = "/vt/files/perfschema-off.cnf"
 
 	// dbTypeVersionImages maps the DBTypeVersion keyspace option to the Docker
 	// image a keyspace's tablets run.
@@ -295,12 +299,25 @@ func (vc *VitessCluster) clusterOptions() []vitesst.ClusterOption {
 		vitesst.WithoutVTGate(),
 		vitesst.WithVTOrc(),
 	}
+	// This package's tests run the largest clusters in the suite, up to
+	// thirty tablets at once, and none of them query performance_schema.
+	// Disabling it saves a couple hundred MB per mysqld.
+	opts = append(opts, vitesst.WithTabletFiles(vitesst.ContainerFile{
+		Content:       []byte("performance_schema = OFF\n"),
+		ContainerPath: perfSchemaOffCnf,
+	}))
+	tabletEnv := map[string]string{}
+	maps.Copy(tabletEnv, vc.tabletEnv)
+	if extra := tabletEnv["EXTRA_MY_CNF"]; extra != "" {
+		tabletEnv["EXTRA_MY_CNF"] = perfSchemaOffCnf + ":" + extra
+	} else {
+		tabletEnv["EXTRA_MY_CNF"] = perfSchemaOffCnf
+	}
+
 	if len(vc.tabletFiles) > 0 {
 		opts = append(opts, vitesst.WithTabletFiles(vc.tabletFiles...))
 	}
-	if len(vc.tabletEnv) > 0 {
-		opts = append(opts, vitesst.WithTabletEnv(vc.tabletEnv))
-	}
+	opts = append(opts, vitesst.WithTabletEnv(tabletEnv))
 	return opts
 }
 
