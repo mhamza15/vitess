@@ -872,6 +872,7 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 	var ne numEvents
+	var shardedRowEvents atomic.Int64
 	var reshardDone atomic.Bool
 	readerDone := make(chan struct{})
 	go func() {
@@ -899,12 +900,16 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 							}
 						case "-80":
 							ne.numDash80Events++
+							shardedRowEvents.Add(1)
 						case "80-":
 							ne.num80DashEvents++
+							shardedRowEvents.Add(1)
 						case "-40":
 							ne.numDash40Events++
+							shardedRowEvents.Add(1)
 						case "40-":
 							ne.num40DashEvents++
+							shardedRowEvents.Add(1)
 						}
 						ne.numRowEvents++
 					case binlogdatapb.VEventType_JOURNAL:
@@ -940,9 +945,20 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 			break
 		}
 	}
-	// Join the goroutines before reading the events they wrote. The reader
-	// blocks in Recv on an idle stream, so cancel the stream to unblock it.
+	// The inserter's final row lands after done is set, so wait for the
+	// stream to deliver every inserted row before ending it.
 	<-inserterDone
+	customerCount, err := execVtgateQuery(vtgateConn, "sharded", "select count(*) from customer")
+	require.NoError(t, err)
+	wantShardedRows, err := customerCount.Rows[0][0].ToCastInt64()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return shardedRowEvents.Load() >= wantShardedRows
+	}, 30*time.Second, 500*time.Millisecond,
+		"waiting for the vstream to deliver all %d sharded rows, have %d", wantShardedRows, shardedRowEvents.Load())
+
+	// Join the reader before reading the events it wrote. It blocks in Recv
+	// on an idle stream, so cancel the stream to unblock it.
 	streamCancel()
 	<-readerDone
 	log.Info(fmt.Sprintf("ne=%v", ne))
