@@ -89,32 +89,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-        # Temporarily prefer the current branch's latest completed run so
-        # partitioning can use fresh timings before any land on main.
+        # Prefer the current branch's latest successful run, falling back to
+        # main's.
         run: |
           # On pull request events the ref name is the merge ref, so use the
           # head branch there.
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           echo "timing source branch: $branch"
 
-          run_id=''
-          for candidate in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=$branch&status=completed&per_page=10" \
-            --jq '.workflow_runs[].id' || true); do
-            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate/artifacts?per_page=100" \
-              --jq '[.artifacts[] | select(.name | startswith("e2e-timing"))] | length' || echo 0)
-            if [[ "$count" -gt 0 ]]; then
-              run_id=$candidate
-              break
-            fi
-          done
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch "$branch" \
+            --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
 
           if [[ -z "$run_id" ]]; then
-            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=main&status=success&per_page=1" \
-              --jq '.workflow_runs[0].id') \
-              || echo "main run lookup failed"
+            run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch main \
+              --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
           fi
 
-          if [[ -n "$run_id" && "$run_id" != "null" ]]; then
+          if [[ -n "$run_id" ]]; then
             echo "downloading timing artifacts from run $run_id"
             gh run download --repo "$GITHUB_REPOSITORY" "$run_id" --pattern 'e2e-timing-*' --dir timing \
               || echo "timing artifact download failed"
