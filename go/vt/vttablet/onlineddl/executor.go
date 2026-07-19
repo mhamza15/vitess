@@ -2374,11 +2374,13 @@ func (e *Executor) readFailedCancelledMigrationsInContextBeforeMigration(ctx con
 // failMigration marks a migration as failed
 func (e *Executor) failMigration(ctx context.Context, onlineDDL *schema.OnlineDDL, withError error) error {
 	defer e.triggerNextCheckInterval()
-	_ = e.updateMigrationStatusFailedOrCancelled(ctx, onlineDDL.UUID)
-	failedMigrations.Add(1)
+	// Write the message before the status transition: pollers key off the
+	// terminal status and read the message from the same row snapshot.
 	if withError != nil {
 		_ = e.updateMigrationMessage(ctx, onlineDDL.UUID, withError.Error())
 	}
+	_ = e.updateMigrationStatusFailedOrCancelled(ctx, onlineDDL.UUID)
+	failedMigrations.Add(1)
 	e.ownedRunningMigrations.Delete(onlineDDL.UUID)
 	return withError
 }
