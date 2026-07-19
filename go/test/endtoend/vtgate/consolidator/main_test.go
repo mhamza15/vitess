@@ -66,7 +66,8 @@ func setupCluster(t *testing.T) (*vitesst.Cluster, mysql.ConnParams) {
 	t.Helper()
 
 	ctx := t.Context()
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace(KeyspaceName).
 			WithReplicas(1).
 			WithSchema(SchemaSQL).
@@ -184,13 +185,19 @@ func testConsolidator(t *testing.T, vtParams mysql.ConnParams, testCases []conso
 			vitesst.Exec(t, conn2, "use "+testCase.tabletType)
 			defer conn2.Close()
 
-			// Create a channel for query results.
-			qrCh := make(chan *sqltypes.Result, 2)
+			// Create a channel for query results. The goroutines must not
+			// assert themselves, so they report errors through the channel.
+			type queryResult struct {
+				qr  *sqltypes.Result
+				err error
+			}
+			qrCh := make(chan queryResult, 2)
 			defer close(qrCh)
 
-			execAsync := func(conn *mysql.Conn, query string, qrCh chan *sqltypes.Result) {
+			execAsync := func(conn *mysql.Conn, query string, qrCh chan queryResult) {
 				go func() {
-					qrCh <- vitesst.Exec(t, conn, query)
+					qr, err := conn.ExecuteFetch(query, 1000, true)
+					qrCh <- queryResult{qr: qr, err: err}
 				}()
 			}
 
@@ -206,7 +213,9 @@ func testConsolidator(t *testing.T, vtParams mysql.ConnParams, testCases []conso
 			// Wait for results, verify they are the same.
 			qr1 := <-qrCh
 			qr2 := <-qrCh
-			diff := cmp.Diff(fmt.Sprintf("%v", qr1.Rows), fmt.Sprintf("%v", qr2.Rows))
+			require.NoError(t, qr1.err)
+			require.NoError(t, qr2.err)
+			diff := cmp.Diff(fmt.Sprintf("%v", qr1.qr.Rows), fmt.Sprintf("%v", qr2.qr.Rows))
 			require.Empty(t, diff, "Expected query results to be equal but they are different.")
 
 			// Verify the query was (or was not) consolidated.
