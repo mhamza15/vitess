@@ -97,8 +97,11 @@ jobs:
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           echo "timing source branch: $branch"
 
+          # Completed rather than success for now: partially failed runs still
+          # upload timings from their green shards, and no run is fully green
+          # yet.
           run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch "$branch" \
-            --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+            --status completed --limit 1 --json databaseId -q '.[0].databaseId' || true)
 
           if [[ -z "$run_id" ]]; then
             run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch main \
