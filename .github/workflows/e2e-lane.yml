@@ -128,11 +128,13 @@ jobs:
           # Packages without timing data would otherwise count as zero cost
           # and all pack into one shard, overloading its runner. Give them a
           # nominal cost so they spread until real timings exist.
-          mkdir -p timing
+          # The timing-files glob only matches files at least one directory
+          # deep, so the synthetic log must live in a subdirectory.
+          mkdir -p timing/synthetic
           while IFS= read -r pkg; do
             if ! grep -rlq "\"Package\":\"$pkg\"" timing/; then
               printf '{"Time":"2026-01-01T00:00:00Z","Action":"pass","Package":"%s","Elapsed":300}\n' "$pkg" \
-                >> timing/synthetic.log
+                >> timing/synthetic/synthetic.log
             fi
           done <<< "$pkgs"
 
