@@ -920,7 +920,11 @@ func terminatedRestore(t *testing.T) {
 	waitForTabletType(t, replica1, topodata.TabletType_REPLICA)
 
 	// backup the replica
-	err := vitessCluster.Vtctld().ExecuteCommand(ctx, "Backup", replica1.Alias())
+	// Bound the command so a backup wedged by the preceding termination fails
+	// the subtest instead of consuming the whole package timeout.
+	backupCtx, backupCancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer backupCancel()
+	err := vitessCluster.Vtctld().ExecuteCommand(backupCtx, "Backup", replica1.Alias())
 	require.NoError(t, err)
 	waitForTabletType(t, replica1, topodata.TabletType_REPLICA)
 
@@ -944,7 +948,9 @@ func terminatedRestore(t *testing.T) {
 	// If restore fails then the tablet type goes back to original type.
 	waitForTabletType(t, primary, topodata.TabletType_REPLICA)
 
-	err = vitessCluster.Vtctld().ExecuteCommand(ctx, "RestoreFromBackup", primary.Alias())
+	restoreCtx, restoreCancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer restoreCancel()
+	err = vitessCluster.Vtctld().ExecuteCommand(restoreCtx, "RestoreFromBackup", primary.Alias())
 	require.NoError(t, err)
 	waitForTabletType(t, primary, topodata.TabletType_REPLICA)
 
@@ -1378,6 +1384,12 @@ func signalVtctldClient(t *testing.T, message string, onMessage func(t *testing.
 			}
 			_, output, err := vtctld.Exec(ctx, "bash", "-c", "kill -TERM $(cat "+terminatePIDFile+")")
 			require.NoErrorf(t, err, "terminating vtctldclient: %s", output)
+			// Wait for the terminated vtctldclient to fully exit so its
+			// server-side stream is gone before the test issues the next command.
+			assert.Eventually(t, func() bool {
+				exitCode, _, err := vtctld.Exec(ctx, "bash", "-c", "kill -0 $(cat "+terminatePIDFile+")")
+				return err == nil && exitCode != 0
+			}, 30*time.Second, 100*time.Millisecond, "vtctldclient did not exit after SIGTERM")
 			return true
 		}
 		time.Sleep(100 * time.Millisecond)
