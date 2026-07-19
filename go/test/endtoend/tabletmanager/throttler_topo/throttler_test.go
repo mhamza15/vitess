@@ -604,7 +604,7 @@ func TestUpdateMetricThresholds(t *testing.T) {
 	ctx := t.Context()
 
 	t.Run("validating pushback from throttler", func(t *testing.T) {
-		req := &vtctldatapb.UpdateThrottlerConfigRequest{Threshold: defaultThreshold.Seconds()}
+		req := &vtctldatapb.UpdateThrottlerConfigRequest{Enable: true, Threshold: defaultThreshold.Seconds()}
 		_, err := updateThrottlerTopoConfig(ctx, req, nil, nil)
 		assert.NoError(t, err)
 		// Wait for the throttler to be enabled everywhere with new config.
@@ -663,7 +663,7 @@ func TestUpdateAppCheckedMetrics(t *testing.T) {
 		require.NoError(t, err)
 	})
 	t.Run("validating pushback from throttler", func(t *testing.T) {
-		req := &vtctldatapb.UpdateThrottlerConfigRequest{Threshold: defaultThreshold.Seconds()}
+		req := &vtctldatapb.UpdateThrottlerConfigRequest{Enable: true, Threshold: defaultThreshold.Seconds()}
 		_, err := updateThrottlerTopoConfig(ctx, req, nil, nil)
 		assert.NoError(t, err)
 		// Wait for the throttler to be enabled everywhere with new config.
