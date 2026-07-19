@@ -84,7 +84,8 @@ func setup(t *testing.T) {
 	t.Helper()
 	ctx := t.Context()
 
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithVTTabletArgs(tabletArgs...),
 		vitesst.WithKeyspace(keyspaceName).
 			WithShardNames(shardName).
@@ -259,13 +260,18 @@ func streamTabletHealth(ctx context.Context, tablet *vitesst.Tablet, count int) 
 }
 
 func checkHealth(t *testing.T, tablet *vitesst.Tablet, shouldError bool) {
-	status, _, err := tablet.MakeAPICall(t.Context(), "/healthz")
-	require.NoError(t, err)
 	if shouldError {
+		status, _, err := tablet.MakeAPICall(t.Context(), "/healthz")
+		require.NoError(t, err)
 		assert.True(t, status > 400)
-	} else {
-		assert.Equal(t, 200, status)
+		return
 	}
+	// A just-demoted tablet reports unhealthy until replication is configured,
+	// so poll for healthy.
+	assert.Eventually(t, func() bool {
+		status, _, err := tablet.MakeAPICall(t.Context(), "/healthz")
+		return err == nil && status == 200
+	}, 30*time.Second, time.Second, "waiting for tablet %s to report healthy", tablet.Alias())
 }
 
 func checkTabletType(t *testing.T, tabletAlias string, typeWant string) {
