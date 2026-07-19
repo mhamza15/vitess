@@ -93,15 +93,21 @@ jobs:
         # partitioning can use fresh timings before any land on main.
         run: |
           run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch "$GITHUB_REF_NAME" \
-            --status completed --limit 1 --json databaseId -q '.[0].databaseId' || true)
+            --status completed --limit 1 --json databaseId -q '.[0].databaseId') \
+            || echo "branch run lookup failed"
 
-          if [[ -z "$run_id" ]]; then
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
             run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yaml --branch main \
-              --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+              --status success --limit 1 --json databaseId -q '.[0].databaseId') \
+              || echo "main run lookup failed"
           fi
 
-          if [[ -n "$run_id" ]]; then
-            gh run download --repo "$GITHUB_REPOSITORY" "$run_id" --pattern 'e2e-timing-*' --dir timing || true
+          if [[ -n "$run_id" && "$run_id" != "null" ]]; then
+            echo "downloading timing artifacts from run $run_id"
+            gh run download --repo "$GITHUB_REPOSITORY" "$run_id" --pattern 'e2e-timing-*' --dir timing \
+              || echo "timing artifact download failed"
+          else
+            echo "no prior run with timing artifacts found"
           fi
 
       - name: Generate shard matrix
