@@ -92,6 +92,11 @@ jobs:
         # Temporarily prefer the current branch's latest completed run so
         # partitioning can use fresh timings before any land on main.
         run: |
+          echo "ref=$GITHUB_REF_NAME repo=$GITHUB_REPOSITORY"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows" --jq '.workflows[] | "\(.id) \(.path)"' || echo "workflow list failed"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=$GITHUB_REF_NAME&status=completed&per_page=1" \
+            --jq '{total_count, first: .workflow_runs[0].id}' || echo "raw branch query failed"
+
           run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yaml/runs?branch=$GITHUB_REF_NAME&status=completed&per_page=1" \
             --jq '.workflow_runs[0].id') \
             || echo "branch run lookup failed"
