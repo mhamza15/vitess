@@ -346,7 +346,8 @@ func setup(t *testing.T) {
 	seedOnce = sync.Once{}
 
 	// We will use a replica to confirm that vtgate's cascading works correctly.
-	cluster, err := vitesst.NewCluster(t,
+	cluster, err := vitesst.NewCluster(
+		t,
 		vitesst.WithKeyspace(keyspaceName).
 			WithShardNames("1").
 			WithReplicas(2).
@@ -1340,6 +1341,18 @@ func populateTables(t *testing.T, tcase *testCase) {
 						generateUpdate(t, tableName, conn)
 					}
 					for range maxTableRows / 4 {
+						generateDelete(t, tableName, conn)
+					}
+					// The metrics validation expects at least one successful
+					// delete, which random attempts on a self-referencing
+					// table do not guarantee. Retry until one succeeds.
+					for range maxTableRows {
+						writeMetrics[tableName].mu.Lock()
+						deleted := writeMetrics[tableName].deletes > 0
+						writeMetrics[tableName].mu.Unlock()
+						if deleted {
+							break
+						}
 						generateDelete(t, tableName, conn)
 					}
 				})
