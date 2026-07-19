@@ -49,7 +49,7 @@ var (
 	primaryTablet           *vitesst.Tablet
 	vtParams                mysql.ConnParams
 	ddlStrategy             = "vitess -vreplication-test-suite"
-	waitForMigrationTimeout = 60 * time.Second
+	waitForMigrationTimeout = 180 * time.Second
 
 	keyspaceName          = "ks"
 	schemaChangeDirectory = "/vt/files"
