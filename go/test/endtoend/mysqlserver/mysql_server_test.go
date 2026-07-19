@@ -96,7 +96,9 @@ func TestInsertLargerThenGrpcLimit(t *testing.T) {
 	require.Nilf(t, err, "int parsing error: %v", err)
 
 	// insert data with large blob
-	_, err = conn.ExecuteFetch("insert into vt_insert_test (id, msg, keyspace_id, data) values(2, 'huge blob', 123, '"+gofakeit.LetterN(uint(limit+1))+"')", 1, false)
+	// Override the cluster's 1s query timeout: processing the oversized
+	// statement must be allowed to reach the gRPC message size check.
+	_, err = conn.ExecuteFetch("insert /*vt+ QUERY_TIMEOUT_MS=60000 */ into vt_insert_test (id, msg, keyspace_id, data) values(2, 'huge blob', 123, '"+gofakeit.LetterN(uint(limit+1))+"')", 1, false)
 	require.NotNil(t, err, "error expected on insert")
 	// The error message embeds the full query text, so truncate it or the
 	// assertion diff drowns the failure output.
