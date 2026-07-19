@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -296,6 +297,12 @@ func (c *Cluster) runVTGateContainer(t testing.TB, ctx context.Context, name str
 			fmt.Sprintf("%d/tcp", vtgateMySQLPort),
 		),
 		network.WithNetwork([]string{name}, c.network),
+		// Docker on Linux does not resolve host.docker.internal without an
+		// explicit host-gateway mapping. Tests use it to point vtgate at
+		// collectors listening on the host.
+		testcontainers.WithHostConfigModifier(func(hc *container.HostConfig) {
+			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+		}),
 		testcontainers.WithEnv(mergeEnv(map[string]string{"VTTEST": "endtoend"}, c.opts.vtgateEnv)),
 		filesOpt,
 		testcontainers.WithLogConsumers(c.newFileLogConsumer(t, name)),
