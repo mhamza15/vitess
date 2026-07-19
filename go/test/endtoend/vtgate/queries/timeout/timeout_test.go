@@ -89,7 +89,10 @@ func TestQueryTimeoutWithTables(t *testing.T) {
 	// the query usually takes more than 5ms to return. So this should fail.
 	_, err := vitesst.ExecAllowError(t, mcmp.VtConn, "select /*vt+ QUERY_TIMEOUT_MS=1 */ count(*) from uks.unsharded where id1 > 31")
 	require.Error(t, err)
-	assert.ErrorContains(t, err, "context deadline exceeded")
+	// Either vtgate's own context expires or the tablet's stream is
+	// cancelled first; both are valid timeout outcomes.
+	assert.Truef(t, strings.Contains(err.Error(), "context deadline exceeded") ||
+		strings.Contains(err.Error(), "DeadlineExceeded"), "unexpected error: %v", err)
 	assert.ErrorContains(t, err, "(errno 1317) (sqlstate 70100)")
 
 	// sharded
