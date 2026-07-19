@@ -98,7 +98,13 @@ func TestInsertLargerThenGrpcLimit(t *testing.T) {
 	// insert data with large blob
 	_, err = conn.ExecuteFetch("insert into vt_insert_test (id, msg, keyspace_id, data) values(2, 'huge blob', 123, '"+gofakeit.LetterN(uint(limit+1))+"')", 1, false)
 	require.NotNil(t, err, "error expected on insert")
-	assert.Contains(t, err.Error(), "trying to send message larger than max")
+	// The error message embeds the full query text, so truncate it or the
+	// assertion diff drowns the failure output.
+	errMsg := err.Error()
+	if len(errMsg) > 1024 {
+		errMsg = errMsg[:1024]
+	}
+	assert.Contains(t, errMsg, "trying to send message larger than max")
 }
 
 // TestTimeout executes sleep(5) with query_timeout of 1 second, and verifies the error.
