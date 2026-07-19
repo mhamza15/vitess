@@ -179,7 +179,7 @@ done`
 
 	topo.setContainer(ctr)
 	c.topo = topo
-	return nil
+	return waitForZookeeperServing(ctx, ctr)
 }
 
 // TopoAddress returns the topology server's client address as seen from
@@ -253,20 +253,26 @@ func (c *Cluster) StartTopoProcess(ctx context.Context) error {
 		return fmt.Errorf("starting zookeeper process: %w", err)
 	}
 
-	// Wait for the four-letter ruok probe to answer imok, so callers see a
-	// serving zookeeper when this returns.
+	return waitForZookeeperServing(ctx, c.topo.container())
+}
+
+// waitForZookeeperServing waits for the four-letter ruok probe to answer
+// imok, so callers see a serving zookeeper when this returns. Zookeeper
+// accepts TCP connections before it can serve sessions, so a listening port
+// alone is not readiness.
+func waitForZookeeperServing(ctx context.Context, ctr testcontainers.Container) error {
 	probe := `exec 3<>/dev/tcp/127.0.0.1/2181 && printf ruok >&3 && head -c 4 <&3`
 	waitCtx, cancel := context.WithTimeout(ctx, defaultStartupTimeout)
 	defer cancel()
 	for {
-		exitCode, output, err := containerExec(waitCtx, c.topo.container(), []string{"bash", "-c", probe})
+		exitCode, output, err := containerExec(waitCtx, ctr, []string{"bash", "-c", probe})
 		if err == nil && exitCode == 0 && output == "imok" {
 			return nil
 		}
 
 		select {
 		case <-waitCtx.Done():
-			return fmt.Errorf("zookeeper did not accept sessions after restart: %w", waitCtx.Err())
+			return fmt.Errorf("zookeeper did not accept sessions: %w", waitCtx.Err())
 		case <-time.After(defaultPollInterval):
 		}
 	}
