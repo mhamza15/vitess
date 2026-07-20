@@ -234,11 +234,14 @@ jobs:
               sleep 5
             done
           ) &
-          GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts"
+          # Bound concurrent package binaries: every package boots at least
+          # one containerized cluster, and go test's default of one per CPU
+          # starves the runner when heavy packages coincide.
+          GOTEST_FLAGS="-json -artifacts -outputdir $GITHUB_WORKSPACE/artifacts -p 2"
           if [[ "$RACE" == "true" ]]; then
-            # One package binary at a time: race-instrumented clusters are
-            # memory-hungry enough that concurrent packages starve the runner.
-            GOTEST_FLAGS+=' -race -p 1'
+            # Race-instrumented clusters are heavier still.
+            GOTEST_FLAGS="${GOTEST_FLAGS/-p 2/-p 1}"
+            GOTEST_FLAGS+=' -race'
           fi
           if [[ -n "$RUN_FLAGS" ]]; then
             # Escape $ anchors so make does not expand them as variables.
