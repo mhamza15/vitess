@@ -938,13 +938,15 @@ func testVStreamCopyMultiKeyspaceReshard(t *testing.T, baseTabletID int) numEven
 			case io.EOF:
 				log.Info("Stream Ended")
 				done.Store(true)
+				return
 			default:
 				log.Error(fmt.Sprintf("Returned err %v", err))
 				done.Store(true)
-			}
-			if done.Load() {
 				return
 			}
+			// Keep consuming until the stream is cancelled: the inserter's
+			// final row can arrive after the tick loop below finishes, and
+			// the catch-up wait needs a live reader to observe it.
 		}
 	}()
 
